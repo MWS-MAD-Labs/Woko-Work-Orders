@@ -122,6 +122,7 @@ By default the application is published from the web container at `http://<host>
 - [Product requirements document](docs/product/PRD.md)
 - [Architecture overview](docs/architecture.md)
 - [Docker deployment guide](docs/deployment/docker.md)
+- [Komodo deployment guide](docs/deployment/komodo.md)
 - [v0.1.0 release notes](docs/releases/v0.1.0.md)
 
 ## Security and data handling

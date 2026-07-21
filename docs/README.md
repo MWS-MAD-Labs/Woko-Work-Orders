@@ -14,6 +14,7 @@ This directory contains detailed product, technical, release, and operational do
 ## Operations
 
 - [Docker deployment guide](deployment/docker.md) — production configuration, deployment, TLS, health checks, backups, upgrades, rollback, and troubleshooting
+- [Komodo deployment guide](deployment/komodo.md) — Git-backed Stack configuration, protected variables, credentials, webhooks, and production deployment
 
 ## Documentation maintenance
 
