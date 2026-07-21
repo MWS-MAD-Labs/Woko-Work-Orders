@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    env_file:
+      - .env
+    volumes:
+      - woko-postgres:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: node apps/api/dist/database/migrate.js
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: ${DOCKER_DATABASE_URL}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/woko_google_credentials
+      GMAIL_APPLICATION_CREDENTIALS: /run/secrets/woko_gmail_credentials
+    secrets:
+      - woko_google_credentials
+      - woko_gmail_credentials
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3001/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT}:80"
+    restart: unless-stopped
+
+volumes:
+  woko-postgres:
+
+secrets:
+  woko_google_credentials:
+    file: ${WOKO_GOOGLE_CREDENTIALS_FILE}
+  woko_gmail_credentials:
+    file: ${WOKO_GMAIL_CREDENTIALS_FILE}

@@ -1,0 +1,223 @@
+import { z } from 'zod';
+
+export const roles = ['ADMINISTRATOR', 'FACILITIES_MANAGER', 'PERSON_IN_CHARGE', 'OVERSEER'] as const;
+export type Role = (typeof roles)[number];
+
+export const workTypes = ['INTERNAL', 'VENDOR'] as const;
+export type WorkType = (typeof workTypes)[number];
+
+export const vendorSearchSchema = z.object({
+  vendorSearchNote: z.string().trim().min(3).max(2000),
+  potentialVendorName: z.string().trim().max(200).optional(),
+  contactedVendorName: z.string().trim().max(200).optional(),
+  shortlistNote: z.string().trim().max(2000).optional(),
+  vendorContactDetails: z.string().trim().max(1000).optional(),
+  expectedVersion: z.number().int().positive(),
+}).superRefine((value, context) => {
+  if (!value.potentialVendorName && !value.contactedVendorName && !value.shortlistNote) {
+    context.addIssue({ code: 'custom', path: ['potentialVendorName'], message: 'Add a potential vendor, contacted vendor, or shortlist note.' });
+  }
+});
+export type VendorSearchInput = z.infer<typeof vendorSearchSchema>;
+
+export const proposalSubmissionSchema = z.object({
+  vendorName: z.string().trim().min(2).max(200),
+  quotedCost: z.coerce.number().positive().max(999999999999.99),
+  proposalValidityDate: z.string().date().optional(),
+  expectedWorkDuration: z.string().trim().max(300).optional(),
+  proposalNotes: z.string().trim().max(2000).optional(),
+  sourceDriveFileId: z.string().trim().min(3).max(300).optional(),
+  allowCopyFallback: z.boolean().default(false),
+  expectedVersion: z.number().int().positive(),
+});
+export type ProposalSubmissionInput = z.infer<typeof proposalSubmissionSchema>;
+
+export const proposalDecisions = ['APPROVED', 'REJECTED', 'REVISION_REQUIRED'] as const;
+export type ProposalDecision = (typeof proposalDecisions)[number];
+
+export const proposalDecisionSchema = z.object({
+  decision: z.enum(proposalDecisions),
+  decisionNote: z.string().trim().min(3).max(2000),
+  plannedStartDate: z.string().date().optional(),
+  expectedVersion: z.number().int().positive(),
+}).superRefine((value, context) => {
+  if (value.decision === 'APPROVED' && !value.plannedStartDate) {
+    context.addIssue({ code: 'custom', path: ['plannedStartDate'], message: 'Planned start date is required for an approved proposal.' });
+  }
+});
+export type ProposalDecisionInput = z.infer<typeof proposalDecisionSchema>;
+
+export const workflowStages = [
+  'PLANNED',
+  'FINDING_VENDOR',
+  'PROPOSAL',
+  'APPROVAL',
+  'SCHEDULED',
+  'IN_PROGRESS',
+  'REVIEW',
+  'COMPLETED',
+] as const;
+export type WorkflowStage = (typeof workflowStages)[number];
+
+export const priorities = ['CRITICAL', 'HIGH', 'NORMAL', 'LOW'] as const;
+export type Priority = (typeof priorities)[number];
+
+export const taskConditions = ['ON_TRACK', 'AT_RISK', 'BLOCKED'] as const;
+export type TaskCondition = (typeof taskConditions)[number];
+
+export const blockerCategories = [
+  'DEPENDENCY',
+  'MATERIALS',
+  'VENDOR',
+  'ACCESS',
+  'BUDGET',
+  'SAFETY',
+  'APPROVAL',
+  'OTHER',
+] as const;
+export type BlockerCategory = (typeof blockerCategories)[number];
+
+export const changeConditionSchema = z.discriminatedUnion('condition', [
+  z.object({
+    condition: z.literal('AT_RISK'),
+    explanation: z.string().trim().min(3).max(2000),
+    expectedImpact: z.string().trim().min(3).max(2000),
+    expectedVersion: z.number().int().positive(),
+  }),
+  z.object({
+    condition: z.literal('BLOCKED'),
+    blockerCategory: z.enum(blockerCategories),
+    explanation: z.string().trim().min(3).max(2000),
+    expectedResolutionDate: z.string().date(),
+    expectedVersion: z.number().int().positive(),
+  }),
+  z.object({
+    condition: z.literal('ON_TRACK'),
+    resolutionNote: z.string().trim().min(3).max(2000),
+    expectedVersion: z.number().int().positive(),
+  }),
+]);
+export type ChangeConditionInput = z.infer<typeof changeConditionSchema>;
+
+export const evidenceTypes = ['INITIAL', 'PROGRESS', 'PROPOSAL', 'COMPLETION'] as const;
+export type EvidenceType = (typeof evidenceTypes)[number];
+
+export const evidenceRules = {
+  maxFileSizeBytes: 15 * 1024 * 1024,
+  maxFilesPerType: 20,
+  allowedMimeTypes: [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/heic',
+    'image/heif',
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ],
+  allowedExtensions: ['jpg', 'jpeg', 'png', 'webp', 'heic', 'heif', 'pdf', 'doc', 'docx', 'xls', 'xlsx'],
+} as const;
+
+export const linkDriveEvidenceSchema = z.object({
+  evidenceType: z.enum(evidenceTypes),
+  driveUrl: z.string().url().max(2000),
+  expectedVersion: z.number().int().positive(),
+});
+
+export const transferDriveEvidenceSchema = z.object({
+  evidenceType: z.enum(evidenceTypes),
+  sourceDriveFileId: z.string().trim().min(3).max(300),
+  allowCopyFallback: z.boolean().default(false),
+  expectedVersion: z.number().int().positive(),
+});
+
+export const changeDueDateSchema = z.object({
+  dueDate: z.string().date(),
+  reason: z.string().trim().min(3).max(1000),
+  expectedVersion: z.number().int().positive(),
+});
+export type ChangeDueDateInput = z.infer<typeof changeDueDateSchema>;
+
+export const workOrderStatuses = ['ACTIVE', 'COMPLETED', 'CANCELLED'] as const;
+export type WorkOrderStatus = (typeof workOrderStatuses)[number];
+
+export const categories = [
+  'BUILDING_STRUCTURE',
+  'PAINTING',
+  'DOORS_AND_WINDOWS',
+  'ELECTRICAL',
+  'PLUMBING',
+  'AIR_CONDITIONING',
+  'FURNITURE',
+  'SAFETY_AND_SECURITY',
+  'OUTDOOR_AREAS',
+  'RENOVATION',
+  'OTHER',
+] as const;
+
+export const executionWindows = [
+  'NO_RESTRICTION',
+  'AFTER_SCHOOL_HOURS',
+  'WEEKEND_ONLY',
+  'SCHOOL_HOLIDAY_ONLY',
+  'REQUIRES_AREA_CLOSURE',
+  'CUSTOM_RESTRICTION',
+] as const;
+
+export const createWorkOrderSchema = z.object({
+  title: z.string().trim().min(3).max(180),
+  description: z.string().trim().min(10).max(5000),
+  category: z.string().trim().min(1).max(80).regex(/^[A-Z0-9_]+$/),
+  campusId: z.string().uuid(),
+  buildingId: z.string().uuid(),
+  locationOptionId: z.string().uuid().optional(),
+  roomOrArea: z.string().trim().max(500).optional(),
+  floor: z.string().trim().max(80).optional(),
+  assigneeIds: z.array(z.string().uuid()).min(1).max(20),
+  reviewerId: z.string().uuid().optional(),
+  overseerIds: z.array(z.string().uuid()).max(50).default([]),
+  workType: z.enum(workTypes),
+  priority: z.enum(priorities).default('NORMAL'),
+  dueDate: z.string().date(),
+  plannedStartDate: z.string().date().optional(),
+  executionWindow: z.enum(executionWindows).default('NO_RESTRICTION'),
+  executionWindowNote: z.string().trim().max(500).optional(),
+  planSummary: z.string().trim().min(3).max(2000),
+}).superRefine((value, context) => {
+  if (value.executionWindow === 'CUSTOM_RESTRICTION' && !value.executionWindowNote) {
+    context.addIssue({ code: 'custom', path: ['executionWindowNote'], message: 'Custom restriction note is required.' });
+  }
+  if (new Set(value.assigneeIds).size !== value.assigneeIds.length) {
+    context.addIssue({ code: 'custom', path: ['assigneeIds'], message: 'Each person in charge may only be selected once.' });
+  }
+  if (new Set(value.overseerIds).size !== value.overseerIds.length) {
+    context.addIssue({ code: 'custom', path: ['overseerIds'], message: 'Each overseer may only be selected once.' });
+  }
+  if (value.reviewerId && value.assigneeIds.includes(value.reviewerId)) {
+    context.addIssue({ code: 'custom', path: ['reviewerId'], message: 'Reviewer must be different from every person in charge.' });
+  }
+  const involved = new Set([...value.assigneeIds, ...(value.reviewerId ? [value.reviewerId] : [])]);
+  if (value.overseerIds.some((id) => involved.has(id))) {
+    context.addIssue({ code: 'custom', path: ['overseerIds'], message: 'Overseers must be different from the PIC and reviewer.' });
+  }
+});
+
+export type CreateWorkOrderInput = z.infer<typeof createWorkOrderSchema>;
+
+export interface WorkOrderSummary {
+  id: string;
+  number: string;
+  title: string;
+  workType: WorkType;
+  stage: WorkflowStage;
+  condition: TaskCondition;
+  status: WorkOrderStatus;
+  priority: Priority;
+  dueDate: string;
+  assignee: { id: string; fullName: string; email: string; profilePhotoUrl?: string };
+  building: string;
+  roomOrArea: string;
+  updatedAt: string;
+}
