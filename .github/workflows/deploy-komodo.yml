@@ -1,0 +1,45 @@
+name: Deploy production with Komodo
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: woko-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Trigger Komodo procedure
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger signed Komodo webhook
+        env:
+          KOMODO_WEBHOOK_URL: ${{ secrets.KOMODO_WEBHOOK_URL }}
+          KOMODO_WEBHOOK_SECRET: ${{ secrets.KOMODO_WEBHOOK_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${KOMODO_WEBHOOK_URL}" || -z "${KOMODO_WEBHOOK_SECRET}" ]]; then
+            echo "::error::KOMODO_WEBHOOK_URL and KOMODO_WEBHOOK_SECRET must be configured as repository secrets."
+            exit 1
+          fi
+
+          payload='{"ref":"refs/heads/main"}'
+          signature="sha256=$(printf '%s' "${payload}" | openssl dgst -sha256 -hmac "${KOMODO_WEBHOOK_SECRET}" | sed 's/^.* //')"
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "X-GitHub-Event: push" \
+            --header "X-Hub-Signature-256: ${signature}" \
+            --data "${payload}" \
+            "${KOMODO_WEBHOOK_URL}"
