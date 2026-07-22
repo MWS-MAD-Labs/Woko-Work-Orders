@@ -174,10 +174,43 @@ export async function authRoutes(app: FastifyInstance) {
         insert into audit_events (user_id, event_type, new_data, correlation_id)
         values (${request.currentUser.id}, 'USER_REGISTERED', ${transaction.json({ userId, email: input.email, active: input.active, roles: input.roles })}, ${request.id})
       `;
+      await transaction`
+        insert into background_jobs (job_type, payload, idempotency_key)
+        values ('INVITATION_EMAIL', ${transaction.json({ userId })}, ${`invitation-email:${userId}:initial`})
+      `;
       return { id: userId } as const;
     });
     if ('error' in result) return reply.code(409).send({ error: { code: result.error, message: 'This email is already registered.', requestId: request.id } });
     return reply.code(201).send({ data: result });
+  });
+
+  app.post('/admin/users/:id/resend-invitation', { preHandler: [authenticate, requireAdministrator] }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const result = await sql.begin(async (transaction) => {
+      const userRows = await transaction<Array<{ email: string; active: boolean; last_login_at: string | null }>>`
+        select email::text, active, last_login_at::text from users where id = ${id} for update
+      `;
+      const user = userRows[0];
+      if (!user) return { error: 'NOT_FOUND' } as const;
+      if (user.last_login_at) return { error: 'USER_ALREADY_SIGNED_IN' } as const;
+      if (!user.active) return { error: 'USER_INACTIVE' } as const;
+      const invitationId = crypto.randomUUID();
+      await transaction`
+        insert into background_jobs (job_type, payload, idempotency_key)
+        values ('INVITATION_EMAIL', ${transaction.json({ userId: id })}, ${`invitation-email:${id}:${invitationId}`})
+      `;
+      await transaction`
+        insert into audit_events (user_id, event_type, new_data, correlation_id)
+        values (${request.currentUser.id}, 'USER_INVITATION_RESENT', ${transaction.json({ userId: id, email: user.email })}, ${request.id})
+      `;
+      return { id, queued: true } as const;
+    });
+    if ('error' in result) {
+      if (result.error === 'NOT_FOUND') return reply.code(404).send({ error: { code: result.error, message: 'User not found.', requestId: request.id } });
+      if (result.error === 'USER_ALREADY_SIGNED_IN') return reply.code(409).send({ error: { code: result.error, message: 'Invitation cannot be resent because this user has already signed in.', requestId: request.id } });
+      return reply.code(422).send({ error: { code: result.error, message: 'Activate this user before resending the invitation.', requestId: request.id } });
+    }
+    return { data: result };
   });
 
   app.patch('/admin/users/:id', { preHandler: [authenticate, requireAdministrator] }, async (request, reply) => {

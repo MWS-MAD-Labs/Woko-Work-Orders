@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Check, Plus, ShieldCheck, X } from 'lucide-react';
+import { Check, Mail, Plus, ShieldCheck, X } from 'lucide-react';
 import { roles, type Role } from '@woko/domain';
 import { api } from './api';
 import type { AdminUser } from './types';
@@ -12,13 +12,15 @@ export function AdminUsers({ onClose, onChanged }: { onClose: () => void; onChan
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [newUser, setNewUser] = useState({ fullName: '', email: '', active: true, roles: ['OVERSEER'] as Role[] });
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
   const load = () => api<AdminUser[]>('/admin/users').then(setUsers).catch((caught) => setError(caught instanceof Error ? caught.message : 'Users could not be loaded.'));
   useEffect(() => { void load(); }, []);
   const create = async (event: FormEvent) => {
-    event.preventDefault(); setSaving(true); setError('');
+    event.preventDefault(); setSaving(true); setError(''); setMessage('');
     try {
       await api('/admin/users', { method: 'POST', body: JSON.stringify(newUser) });
+      setMessage(`Invitation queued for ${newUser.email}.`);
       setNewUser({ fullName: '', email: '', active: true, roles: ['OVERSEER'] });
       await load();
       await onChanged();
@@ -27,12 +29,20 @@ export function AdminUsers({ onClose, onChanged }: { onClose: () => void; onChan
   };
   const update = async (user: AdminUser, active: boolean, updatedRoles: Role[]) => {
     if (!updatedRoles.length) { setError('Every user must have at least one role.'); return; }
-    setSaving(true); setError('');
+    setSaving(true); setError(''); setMessage('');
     try {
       await api(`/admin/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ active, roles: updatedRoles }) });
       await load();
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'User access could not be changed.'); }
+    finally { setSaving(false); }
+  };
+  const resendInvitation = async (user: AdminUser) => {
+    setSaving(true); setError(''); setMessage('');
+    try {
+      await api(`/admin/users/${user.id}/resend-invitation`, { method: 'POST' });
+      setMessage(`Invitation queued again for ${user.email}.`);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Invitation could not be resent.'); }
     finally { setSaving(false); }
   };
   return <div className="sheet-backdrop" onMouseDown={onClose}><section className="sheet admin-sheet" onMouseDown={(event) => event.stopPropagation()}>
@@ -45,11 +55,12 @@ export function AdminUsers({ onClose, onChanged }: { onClose: () => void; onChan
         <button className="primary-button" disabled={saving || !newUser.roles.length}><Plus /> Register</button>
       </form>
       {error && <p className="form-error" role="alert">{error}</p>}
+      {message && <p className="form-success" role="status"><Check /> {message}</p>}
       <div className="admin-user-list">{users.map((user) => <article key={user.id}>
         <div className="admin-user-heading"><span className={`identity-state ${user.identity_linked ? 'linked' : ''}`}>{user.identity_linked ? <Check /> : <ShieldCheck />}{user.identity_linked ? 'Google linked' : 'Awaiting first login'}</span><label className="active-toggle"><input type="checkbox" checked={user.active} disabled={saving} onChange={(event) => void update(user, event.target.checked, user.roles)} /> Active</label></div>
         <strong>{user.full_name}</strong><a href={`mailto:${user.email}`}>{user.email}</a>
         <RoleChecks selected={user.roles} onChange={(selectedRoles) => void update(user, user.active, selectedRoles)} />
-        <small>{user.last_login_at ? `Last login ${new Date(user.last_login_at).toLocaleString()}` : 'Never signed in'}</small>
+        <div className="admin-user-footer"><small>{user.last_login_at ? `Last login ${new Date(user.last_login_at).toLocaleString()}` : 'Never signed in'}</small>{!user.last_login_at && <button type="button" className="secondary-button invitation-button" disabled={saving || !user.active} onClick={() => void resendInvitation(user)}><Mail /> Resend invitation</button>}</div>
       </article>)}</div>
     </div>
   </section></div>;

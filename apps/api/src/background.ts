@@ -2,6 +2,7 @@ import { hostname } from 'node:os';
 import { config } from './config.js';
 import { sql } from './database/client.js';
 import { sendNotificationEmail } from './email.js';
+import { renderInvitationEmail } from './invitation-email.js';
 import { renderNotificationEmail } from './notification-email.js';
 import { localizeNotification, type NotificationLocale } from './notification-localization.js';
 
@@ -136,6 +137,22 @@ async function deliverNotificationEmail(notificationId: string) {
   await sql`update notifications set email_status = 'SENT', email_sent_at = now(), email_last_error = null where id = ${notificationId}`;
 }
 
+async function deliverInvitationEmail(userId: string) {
+  const rows = await sql<Array<{ email: string; full_name: string; active: boolean; last_login_at: string | null }>>`
+    select email::text, full_name, active, last_login_at::text from users where id = ${userId}
+  `;
+  const user = rows[0];
+  if (!user || !user.active || user.last_login_at) return;
+  const content = renderInvitationEmail({ recipientName: user.full_name });
+  await sendNotificationEmail({
+    toEmail: user.email,
+    toName: user.full_name,
+    subject: content.subject,
+    text: content.text,
+    html: content.html,
+  });
+}
+
 async function claimJob(): Promise<JobRow | undefined> {
   return sql.begin(async (transaction) => {
     const rows = await transaction<JobRow[]>`
@@ -165,6 +182,10 @@ async function processJob(job: JobRow) {
   }
   if (job.job_type === 'NOTIFICATION_EMAIL') {
     await deliverNotificationEmail(zString(job.payload.notificationId));
+    return;
+  }
+  if (job.job_type === 'INVITATION_EMAIL') {
+    await deliverInvitationEmail(zString(job.payload.userId));
     return;
   }
   throw new Error(`Unsupported background job type: ${job.job_type}`);
