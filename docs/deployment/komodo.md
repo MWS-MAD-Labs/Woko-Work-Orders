@@ -214,22 +214,27 @@ In Komodo, inspect the `migrate`, `api`, and `web` logs if deployment fails. Do 
 
 ## 9. Configure automatic deployment from GitHub
 
-After the first successful manual deployment:
+Use a Komodo **Procedure** so every successful webhook delivery runs a full Stack deployment, including image rebuilds and migrations.
 
-1. Open the Stack's **Config → Webhooks** section.
-2. Ensure webhooks are enabled and the branch is `main`.
-3. Copy the Stack **Deploy** webhook URL.
-4. Open `MWS-MAD-Labs/Woko-Work-Orders` on GitHub.
-5. Go to **Settings → Webhooks → Add webhook**.
-6. Set the payload URL to the Komodo Deploy webhook URL.
-7. Set content type to `application/json`.
-8. Set the secret to the same value as Komodo's `KOMODO_WEBHOOK_SECRET`, or the Stack-specific webhook secret.
-9. Select push events.
-10. Enable **Webhook Force Deploy** on the Stack.
+1. Create a Procedure named `Woko Production Redeploy`.
+2. Add one enabled stage containing an enabled `DeployStack` execution for `woko-work-orders`.
+3. Enable the Procedure webhook and configure a dedicated random webhook secret.
+4. Use the GitHub listener URL for branch `main`:
 
-Komodo will ignore pushes to branches other than the Stack's configured branch. Force deploy is required here because Komodo's normal change check tracks the Compose and configured environment files, not every TypeScript source file in the repository. Without it, a code-only push can be treated as having no deployment changes.
+   ```text
+   https://<komodo-host>/listener/github/procedure/<procedure-id>/main
+   ```
 
-Because this Stack builds images from repository source, keep both **Webhook Force Deploy** and **Run Build** enabled for webhook deployments.
+5. Create these GitHub Actions repository secrets:
+
+   - `KOMODO_WEBHOOK_URL`: the Procedure listener URL
+   - `KOMODO_WEBHOOK_SECRET`: the Procedure's dedicated webhook secret
+
+6. Add a workflow triggered by pushes to `main`. It must send a JSON push payload and an HMAC-SHA256 signature in `X-Hub-Signature-256`.
+
+The maintained workflow is `.github/workflows/deploy-komodo.yml`. It sends `{"ref":"refs/heads/main"}` to the Procedure listener, supports manual dispatch, and prevents overlapping production deployments.
+
+Keep **Run Build** enabled on the Stack. The Procedure uses `DeployStack`, so code-only pushes perform a full deployment rather than relying on Compose-file change detection.
 
 ## 10. Backups and upgrades
 

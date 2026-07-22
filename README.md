@@ -1,10 +1,10 @@
 # Woko
 
-Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.1.0** is the first release-ready internal version of the product.
+Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.5.1** is the current production release candidate.
 
-> **Release status:** Ready for controlled production deployment. See the [v0.1 release notes](docs/releases/v0.1.0.md) for scope, prerequisites, and known limitations.
+> **Release status:** Deployed for final production verification. See the [v0.5.1 release notes](docs/releases/v0.5.1.md) for deployment details and validation requirements.
 
-## What v0.1 includes
+## What v0.5.1 includes
 
 - Mobile-first installable PWA with Bahasa Indonesia and English interfaces
 - Internal and vendor work-order workflows with role-aware transitions
@@ -123,6 +123,7 @@ By default the application is published from the web container at `http://<host>
 - [Architecture overview](docs/architecture.md)
 - [Docker deployment guide](docs/deployment/docker.md)
 - [Komodo deployment guide](docs/deployment/komodo.md)
+- [v0.5.1 release notes](docs/releases/v0.5.1.md)
 - [v0.1.0 release notes](docs/releases/v0.1.0.md)
 
 ## Security and data handling
@@ -135,7 +136,7 @@ By default the application is published from the web container at `http://<host>
 
 ## Versioning
 
-The root package and all workspaces currently identify this release as `0.1.0`. Future releases should add a versioned note under `docs/releases/` and update this README when release status or supported deployment requirements change.
+The root package and all workspaces identify this release candidate as `0.5.1`. Release tags and GitHub releases are created only after the deployed commit passes production verification.
 
 ## License
 
