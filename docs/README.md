@@ -5,6 +5,7 @@ This directory contains detailed product, technical, release, and operational do
 ## Product
 
 - [Product requirements document](product/PRD.md) — problem, users, workflows, requirements, success measures, and product boundaries
+- [v0.6.0 implementation plan](releases/v0.6.0-plan.md) — Worker role, internal procurement tracking, PIC creation, action-bound attachments, and Drive reliability scope
 - [v0.5.1 release notes](releases/v0.5.1.md) — production deployment changes, upgrade notes, and final verification checklist
 - [v0.1.0 release notes](releases/v0.1.0.md) — initial delivered scope, deployment prerequisites, and known limitations
 
