@@ -17,13 +17,37 @@ function PeoplePicker({ users, selected, onChange, label }: { users: ReferenceDa
   return <fieldset className="people-picker"><legend>{label}</legend>{users.map((user) => <label key={user.id}><input type="checkbox" checked={selected.includes(user.id)} onChange={(event) => onChange(event.target.checked ? [...selected, user.id] : selected.filter((id) => id !== user.id))} /><span><strong>{user.full_name}</strong><small>{user.email}</small></span></label>)}</fieldset>;
 }
 
-const labels: Record<string, string> = {
-  BUILDING_STRUCTURE: 'Building Structure', PAINTING: 'Painting', DOORS_AND_WINDOWS: 'Doors and Windows', ELECTRICAL: 'Electrical',
-  PLUMBING: 'Plumbing', AIR_CONDITIONING: 'Air Conditioning', FURNITURE: 'Furniture', SAFETY_AND_SECURITY: 'Safety and Security',
-  OUTDOOR_AREAS: 'Outdoor Areas', RENOVATION: 'Renovation', OTHER: 'Other', NO_RESTRICTION: 'No Restriction',
-  AFTER_SCHOOL_HOURS: 'After School Hours', WEEKEND_ONLY: 'Weekend Only', SCHOOL_HOLIDAY_ONLY: 'School Holiday Only',
-  REQUIRES_AREA_CLOSURE: 'Requires Area Closure', CUSTOM_RESTRICTION: 'Custom Restriction',
+const defaultOptionLabels: Record<string, string> = {
+  INTERNAL: 'Internal', VENDOR: 'Vendor', BUILDING_STRUCTURE: 'Building Structure', PAINTING: 'Painting', DOORS_AND_WINDOWS: 'Doors and Windows',
+  ELECTRICAL: 'Electrical', PLUMBING: 'Plumbing', AIR_CONDITIONING: 'Air Conditioning', FURNITURE: 'Furniture',
+  SAFETY_AND_SECURITY: 'Safety and Security', OUTDOOR_AREAS: 'Outdoor Areas', RENOVATION: 'Renovation', OTHER: 'Other',
+  NO_RESTRICTION: 'No Restriction', AFTER_SCHOOL_HOURS: 'After School Hours', WEEKEND_ONLY: 'Weekend Only',
+  SCHOOL_HOLIDAY_ONLY: 'School Holiday Only', REQUIRES_AREA_CLOSURE: 'Requires Area Closure', CUSTOM_RESTRICTION: 'Custom Restriction',
 };
+
+const indonesianOptionLabels: Record<string, string> = {
+  INTERNAL: 'Internal', VENDOR: 'Vendor', BUILDING_STRUCTURE: 'Struktur Gedung', PAINTING: 'Pengecatan', DOORS_AND_WINDOWS: 'Pintu dan Jendela',
+  ELECTRICAL: 'Kelistrikan', PLUMBING: 'Perpipaan', AIR_CONDITIONING: 'Pendingin Udara', FURNITURE: 'Furnitur',
+  SAFETY_AND_SECURITY: 'Keselamatan dan Keamanan', OUTDOOR_AREAS: 'Area Luar Ruangan', RENOVATION: 'Renovasi', OTHER: 'Lainnya',
+  NO_RESTRICTION: 'Tanpa Pembatasan', AFTER_SCHOOL_HOURS: 'Setelah Jam Sekolah', WEEKEND_ONLY: 'Hanya Akhir Pekan',
+  SCHOOL_HOLIDAY_ONLY: 'Hanya Libur Sekolah', REQUIRES_AREA_CLOSURE: 'Memerlukan Penutupan Area', CUSTOM_RESTRICTION: 'Pembatasan Khusus',
+};
+
+const priorityLabels: Record<Locale, Record<string, string>> = {
+  id: { CRITICAL: 'Kritis', HIGH: 'Tinggi', NORMAL: 'Normal', LOW: 'Rendah' },
+  en: { CRITICAL: 'Critical', HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' },
+};
+
+function optionLabel(code: string, configuredLabel: string, locale: Locale) {
+  return locale === 'id' && defaultOptionLabels[code] === configuredLabel ? indonesianOptionLabels[code] ?? configuredLabel : configuredLabel;
+}
+
+function locationTypeLabel(value: string, locale: Locale) {
+  const normalized = value.replaceAll('_', ' ');
+  if (locale !== 'id') return normalized;
+  const translated: Record<string, string> = { FLOOR: 'Lantai', ROOM: 'Ruangan', AREA: 'Area', ZONE: 'Zona', WING: 'Sayap' };
+  return translated[value] ?? normalized;
+}
 
 interface CreateFormProps {
   references: ReferenceData;
@@ -99,15 +123,15 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
   };
   const nextStep = () => {
     const requiredByStep = [
-      [[data.title, 'Title'], [data.description, 'Description'], [data.category, 'Category']],
-      [[data.campusId, 'Campus'], [data.buildingId, 'Building']],
+      [[data.title, t('title')], [data.description, t('description')], [data.category, t('category')]],
+      [[data.campusId, t('campus')], [data.buildingId, t('building')]],
       [[assigneeIds[0], t('pic')], [data.workType, t('workType')], [data.executionWindow === 'CUSTOM_RESTRICTION' ? data.executionWindowNote : 'ok', t('restrictionNote')]],
-      [[data.dueDate, 'Due date'], [data.planSummary, 'Plan summary']],
+      [[data.dueDate, t('dueDate')], [data.planSummary, t('planSummary')]],
     ];
     const missing = requiredByStep[step]?.find(([value]) => !String(value).trim());
 
     if (missing) {
-      setError(`${missing[1]} is required.`);
+      setError(`${missing[1]} ${t('isRequired')}`);
       return;
     }
     if (step === 2 && data.reviewerId && assigneeIds.includes(data.reviewerId)) {
@@ -115,7 +139,7 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
       return;
     }
     if (step === 0 && (data.title.trim().length < 3 || data.description.trim().length < 10)) {
-      setError('Provide a title and a description of at least 10 characters.');
+      setError(t('titleDescriptionMinimum'));
       return;
     }
     setError('');
@@ -133,7 +157,7 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
       });
       await onCreated(result.id, result.number);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Work order could not be created.');
+      setError(caught instanceof Error ? caught.message : t('workOrderCreateFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -141,43 +165,43 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
 
   const sections = [
     <div className="form-grid" key="basic">
-      <Field label="Title" required><input value={data.title} onChange={(event) => set('title', event.target.value)} minLength={3} required /></Field>
-      <Field label="Category" required><select value={data.category} onChange={(event) => set('category', event.target.value)}>{categoryOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></Field>
-      <Field label="Description" required><textarea value={data.description} onChange={(event) => set('description', event.target.value)} minLength={10} rows={5} required /></Field>
-      <Field label="Priority" required><select value={data.priority} onChange={(event) => set('priority', event.target.value)}>{priorities.map((priority) => <option key={priority}>{priority}</option>)}</select></Field>
+      <Field label={t('title')} required><input value={data.title} onChange={(event) => set('title', event.target.value)} minLength={3} required /></Field>
+      <Field label={t('category')} required><select value={data.category} onChange={(event) => set('category', event.target.value)}>{categoryOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
+      <Field label={t('description')} required><textarea value={data.description} onChange={(event) => set('description', event.target.value)} minLength={10} rows={5} required /></Field>
+      <Field label={t('priority')} required><select value={data.priority} onChange={(event) => set('priority', event.target.value)}>{priorities.map((priority) => <option key={priority}>{priorityLabels[locale][priority]}</option>)}</select></Field>
     </div>,
     <div className="form-grid" key="location">
-      <Field label="Campus" required><select value={data.campusId} onChange={(event) => { const campusId = event.target.value; const buildingId = references.buildings.find((building) => building.campus_id === campusId)?.id ?? ''; setSelectedLocationIds([]); setData((current) => ({ ...current, campusId, buildingId, locationOptionId: '', floor: '', roomOrArea: '' })); }}>{references.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></Field>
-      <Field label="Building" required><select value={data.buildingId} onChange={(event) => { setSelectedLocationIds([]); setData((current) => ({ ...current, buildingId: event.target.value, locationOptionId: '', floor: '', roomOrArea: '' })); }}>{buildings.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></Field>
-      {locationLevels.map((level, depth) => <Field key={`${depth}-${level.options[0]?.parent_id ?? 'root'}`} label={`${level.options[0]?.type_label.replaceAll('_', ' ') ?? 'Location'}`}><select value={level.selectedId} onChange={(event) => selectLocation(depth, event.target.value)}><option value="">Whole {depth === 0 ? 'building' : 'previous level'}</option>{level.options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></Field>)}
-      {!buildingLocationOptions.length && <div className="building-location-note"><strong>Building-wide work order</strong><p>No additional areas, floors, or rooms are configured for this building. You can continue with the building only.</p></div>}
-      {buildingLocationOptions.length > 0 && <p className="configured-location-summary"><strong>Selected location:</strong> {data.roomOrArea || 'Whole building'}</p>}
+      <Field label={t('campus')} required><select value={data.campusId} onChange={(event) => { const campusId = event.target.value; const buildingId = references.buildings.find((building) => building.campus_id === campusId)?.id ?? ''; setSelectedLocationIds([]); setData((current) => ({ ...current, campusId, buildingId, locationOptionId: '', floor: '', roomOrArea: '' })); }}>{references.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></Field>
+      <Field label={t('building')} required><select value={data.buildingId} onChange={(event) => { setSelectedLocationIds([]); setData((current) => ({ ...current, buildingId: event.target.value, locationOptionId: '', floor: '', roomOrArea: '' })); }}>{buildings.map((building) => <option key={building.id} value={building.id}>{building.name}</option>)}</select></Field>
+      {locationLevels.map((level, depth) => <Field key={`${depth}-${level.options[0]?.parent_id ?? 'root'}`} label={level.options[0] ? locationTypeLabel(level.options[0].type_label, locale) : t('location')}><select value={level.selectedId} onChange={(event) => selectLocation(depth, event.target.value)}><option value="">{depth === 0 ? t('wholeBuilding') : t('wholePreviousLevel')}</option>{level.options.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></Field>)}
+      {!buildingLocationOptions.length && <div className="building-location-note"><strong>{t('buildingWideWorkOrder')}</strong><p>{t('noBuildingLocations')}</p></div>}
+      {buildingLocationOptions.length > 0 && <p className="configured-location-summary"><strong>{t('selectedLocation')}</strong> {data.roomOrArea || t('wholeBuilding')}</p>}
     </div>,
     <div className="form-grid" key="responsibility">
       <PeoplePicker users={picUsers} selected={assigneeIds} onChange={changeAssignees} label={`${t('pic')} *`} />
       <Field label={t('reviewer')}><select value={data.reviewerId} onChange={(event) => changeReviewer(event.target.value)}><option value="">{t('defaultManager')}</option>{reviewerUsers.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}</select></Field>
       <PeoplePicker users={overseerUsers} selected={overseerIds} onChange={changeOverseers} label={t('overseers')} />
-      <Field label="Work type" required><select value={data.workType} onChange={(event) => set('workType', event.target.value)}>{workTypeOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></Field>
-      <Field label="Execution window"><select value={data.executionWindow} onChange={(event) => set('executionWindow', event.target.value)}>{executionWindowOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}</select></Field>
-      {data.executionWindow === 'CUSTOM_RESTRICTION' && <Field label="Restriction note" required><textarea value={data.executionWindowNote} onChange={(event) => set('executionWindowNote', event.target.value)} required /></Field>}
+      <Field label={t('workType')} required><select value={data.workType} onChange={(event) => set('workType', event.target.value)}>{workTypeOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
+      <Field label={t('executionWindow')}><select value={data.executionWindow} onChange={(event) => set('executionWindow', event.target.value)}>{executionWindowOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
+      {data.executionWindow === 'CUSTOM_RESTRICTION' && <Field label={t('restrictionNote')} required><textarea value={data.executionWindowNote} onChange={(event) => set('executionWindowNote', event.target.value)} required /></Field>}
     </div>,
     <div className="form-grid" key="schedule">
-      <Field label="Due date" required hint="Every work order stores an exact date."><input type="date" value={data.dueDate} min={format(new Date(), 'yyyy-MM-dd')} onChange={(event) => set('dueDate', event.target.value)} required /></Field>
-      <div className="preset-row"><button type="button" onClick={() => setDuePreset('WEEK')}>This week</button><button type="button" onClick={() => setDuePreset('MONTH')}>This month</button><button type="button" onClick={() => setDuePreset('NEXT_MONTH')}>Next month</button><button type="button" onClick={() => setDuePreset('SEMESTER')}>Semester</button><button type="button" onClick={() => setDuePreset('ACADEMIC_YEAR')}>Academic year</button></div>
-      <Field label="Planned start date"><input type="date" value={data.plannedStartDate} onChange={(event) => set('plannedStartDate', event.target.value)} /></Field>
-      <Field label="Plan summary" required><textarea rows={5} value={data.planSummary} onChange={(event) => set('planSummary', event.target.value)} minLength={3} required /></Field>
+      <Field label={t('dueDate')} required hint={t('exactDueDateHint')}><input type="date" value={data.dueDate} min={format(new Date(), 'yyyy-MM-dd')} onChange={(event) => set('dueDate', event.target.value)} required /></Field>
+      <div className="preset-row"><button type="button" onClick={() => setDuePreset('WEEK')}>{t('thisWeek')}</button><button type="button" onClick={() => setDuePreset('MONTH')}>{t('thisMonth')}</button><button type="button" onClick={() => setDuePreset('NEXT_MONTH')}>{t('nextMonth')}</button><button type="button" onClick={() => setDuePreset('SEMESTER')}>{t('semester')}</button><button type="button" onClick={() => setDuePreset('ACADEMIC_YEAR')}>{t('academicYear')}</button></div>
+      <Field label={t('plannedStartDate')}><input type="date" value={data.plannedStartDate} onChange={(event) => set('plannedStartDate', event.target.value)} /></Field>
+      <Field label={t('planSummary')} required><textarea rows={5} value={data.planSummary} onChange={(event) => set('planSummary', event.target.value)} minLength={3} required /></Field>
     </div>,
     <div className="review-summary" key="review">
-      <h3>{data.title || 'Untitled work order'}</h3><p>{data.description}</p>
-      <dl><div><dt>Category</dt><dd>{categoryOptions.find((option) => option.code === data.category)?.label ?? data.category}</dd></div><div><dt>Work type</dt><dd>{workTypeOptions.find((option) => option.code === data.workType)?.label ?? data.workType}</dd></div><div><dt>Due date</dt><dd>{data.dueDate}</dd></div><div><dt>Location</dt><dd>{references.buildings.find((building) => building.id === data.buildingId)?.name}, {data.roomOrArea || 'Whole building'}</dd></div></dl>
+      <h3>{data.title || t('untitledWorkOrder')}</h3><p>{data.description}</p>
+      <dl><div><dt>{t('category')}</dt><dd>{(() => { const option = categoryOptions.find((item) => item.code === data.category); return option ? optionLabel(option.code, option.label, locale) : data.category; })()}</dd></div><div><dt>{t('workType')}</dt><dd>{(() => { const option = workTypeOptions.find((item) => item.code === data.workType); return option ? optionLabel(option.code, option.label, locale) : data.workType; })()}</dd></div><div><dt>{t('dueDate')}</dt><dd>{data.dueDate}</dd></div><div><dt>{t('location')}</dt><dd>{references.buildings.find((building) => building.id === data.buildingId)?.name}, {data.roomOrArea || t('wholeBuilding')}</dd></div></dl>
     </div>,
   ];
-  const stepNames = ['Basic', 'Location', 'Responsibility', 'Schedule', 'Review'];
+  const stepNames = [t('basic'), t('location'), t('responsibility'), t('schedule'), t('reviewStep')];
   return <form className="sheet" onSubmit={submit}>
-    <header className="sheet-header"><div><span>New work order</span><h2>{stepNames[step]}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Close"><X /></button></header>
-    <div className="stepper" aria-label={`Step ${step + 1} of ${sections.length}`}>{stepNames.map((name, index) => <span key={name} className={index <= step ? 'active' : ''}>{index < step ? <Check /> : index + 1}<small>{name}</small></span>)}</div>
+    <header className="sheet-header"><div><span>{t('newWorkOrder')}</span><h2>{stepNames[step]}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label={t('close')}><X /></button></header>
+    <div className="stepper" aria-label={`${t('step')} ${step + 1} ${t('of')} ${sections.length}`}>{stepNames.map((name, index) => <span key={name} className={index <= step ? 'active' : ''}>{index < step ? <Check /> : index + 1}<small>{name}</small></span>)}</div>
     <div className="sheet-content">{sections[step]}{error && <p className="form-error" role="alert">{error}</p>}</div>
-    <footer className="sheet-actions"><button type="button" className="secondary-button" disabled={step === 0 || submitting} onClick={() => { setError(''); setStep((current) => current - 1); }}><ArrowLeft /> Back</button>{step < sections.length - 1 ? <button type="button" className="primary-button" onClick={nextStep}>Next <ArrowRight /></button> : <button type="submit" className="primary-button" disabled={submitting}>{submitting ? 'Creating...' : 'Create work order'}</button>}</footer>
+    <footer className="sheet-actions"><button type="button" className="secondary-button" disabled={step === 0 || submitting} onClick={() => { setError(''); setStep((current) => current - 1); }}><ArrowLeft /> {t('back')}</button>{step < sections.length - 1 ? <button type="button" className="primary-button" onClick={nextStep}>{t('next')} <ArrowRight /></button> : <button type="submit" className="primary-button" disabled={submitting}>{submitting ? t('creating') : t('createWorkOrder')}</button>}</footer>
   </form>;
 }
 
