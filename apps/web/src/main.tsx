@@ -10,11 +10,8 @@ if (import.meta.env.DEV && 'serviceWorker' in navigator) {
     if ('caches' in window) await Promise.all((await caches.keys()).map((cacheName) => caches.delete(cacheName)));
   });
 } else {
-  const updateServiceWorker = registerSW({
+  registerSW({
     immediate: true,
-    onNeedRefresh() {
-      void updateServiceWorker(true);
-    },
     onRegisteredSW(_url, registration) {
       if (registration) window.setInterval(() => void registration.update(), 60 * 60 * 1000);
     },
