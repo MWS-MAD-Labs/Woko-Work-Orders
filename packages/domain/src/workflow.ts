@@ -1,4 +1,4 @@
-import type { ProposalDecision, Role, WorkflowStage, WorkType } from './types.js';
+import type { InternalProcurementStatus, ProposalDecision, Role, WorkflowStage, WorkType } from './types.js';
 
 export const workflowByType: Record<WorkType, readonly WorkflowStage[]> = {
   INTERNAL: ['PLANNED', 'SCHEDULED', 'IN_PROGRESS', 'REVIEW', 'COMPLETED'],
@@ -22,6 +22,8 @@ export interface TransitionRequest {
   completionEvidenceWaiverReason?: string;
   plannedStartDate?: string;
   completionSummary?: string;
+  procurementStatus?: InternalProcurementStatus;
+  procurementOverrideReason?: string;
 }
 
 export interface TransitionResult {
@@ -64,10 +66,44 @@ export function validateTransition(request: TransitionRequest): TransitionResult
     return { allowed: false, code: 'COMPLETION_SUMMARY_REQUIRED' };
   }
 
+  if (request.workType === 'INTERNAL' && request.from === 'IN_PROGRESS' && request.to === 'REVIEW') {
+    const unresolved = request.procurementStatus && !['NOT_REQUIRED', 'APPROVED'].includes(request.procurementStatus);
+    if (unresolved && (!isManager || !request.procurementOverrideReason?.trim())) {
+      return { allowed: false, code: isManager ? 'PROCUREMENT_OVERRIDE_REASON_REQUIRED' : 'PROCUREMENT_UNRESOLVED' };
+    }
+  }
+
   if (request.from === 'REVIEW' && request.to === 'COMPLETED') {
     const hasEvidence = request.hasCompletionEvidence || Boolean(request.completionEvidenceWaiverReason?.trim());
     if (!hasEvidence) return { allowed: false, code: 'COMPLETION_EVIDENCE_REQUIRED' };
   }
 
   return { allowed: true };
+}
+
+export function canCreateWorkOrder(roles: readonly Role[]): boolean {
+  return roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER' || role === 'PERSON_IN_CHARGE');
+}
+
+export function canWorkerRecordProgress(input: {
+  roles: readonly Role[];
+  assignedWorker: boolean;
+  status: string;
+  workType: WorkType;
+  stage: WorkflowStage;
+}): boolean {
+  return input.roles.includes('WORKER') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && input.stage === 'IN_PROGRESS';
+}
+
+export const procurementTransitions: Record<InternalProcurementStatus, readonly InternalProcurementStatus[]> = {
+  NOT_REQUIRED: ['PROPOSAL_REQUIRED'],
+  PROPOSAL_REQUIRED: ['SUBMITTED', 'NOT_REQUIRED'],
+  SUBMITTED: ['APPROVED', 'REJECTED', 'REVISION_REQUIRED', 'NOT_REQUIRED'],
+  APPROVED: [],
+  REJECTED: ['PROPOSAL_REQUIRED', 'NOT_REQUIRED'],
+  REVISION_REQUIRED: ['SUBMITTED', 'NOT_REQUIRED'],
+};
+
+export function canTransitionProcurement(from: InternalProcurementStatus, to: InternalProcurementStatus): boolean {
+  return procurementTransitions[from].includes(to);
 }

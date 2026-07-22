@@ -51,12 +51,13 @@ function locationTypeLabel(value: string, locale: Locale) {
 
 interface CreateFormProps {
   references: ReferenceData;
+  currentUser: CurrentUser;
   onClose: () => void;
   onCreated: (id: string, number: string) => Promise<void> | void;
   locale: Locale;
 }
 
-export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: CreateFormProps) {
+export function CreateWorkOrderForm({ references, currentUser, onClose, onCreated, locale }: CreateFormProps) {
   const t = translator(locale);
   const [step, setStep] = useState(0);
   const [error, setError] = useState('');
@@ -70,27 +71,38 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
   const [data, setData] = useState({
     title: '', description: '', category: categoryOptions[0]?.code ?? '', priority: 'NORMAL', campusId: firstCampus,
     buildingId: references.buildings.find((building) => building.campus_id === firstCampus)?.id ?? '', locationOptionId: '', floor: '', roomOrArea: '',
-    reviewerId: '', workType: workTypeOptions[0]?.code ?? '', dueDate: '', plannedStartDate: '',
+    reviewerId: '', workType: workTypeOptions[0]?.code ?? 'INTERNAL', dueDate: '', plannedStartDate: '',
     executionWindow: executionWindowOptions[0]?.code ?? '', executionWindowNote: '', planSummary: '',
   });
   const picUsers = references.users.filter((user) => user.roles.includes('PERSON_IN_CHARGE'));
+  const workerUsers = references.users.filter((user) => user.roles.includes('WORKER'));
   const reviewerUsers = references.users.filter((user) => user.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER'));
   const overseerUsers = references.users.filter((user) => user.roles.includes('OVERSEER'));
-  const [assigneeIds, setAssigneeIds] = useState<string[]>(picUsers[0] ? [picUsers[0].id] : []);
+  const currentPic = picUsers.find((user) => user.id === currentUser.id);
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(currentPic ? [currentPic.id] : picUsers[0] ? [picUsers[0].id] : []);
+  const [workerIds, setWorkerIds] = useState<string[]>([]);
   const [overseerIds, setOverseerIds] = useState<string[]>([]);
   const set = (key: string, value: string) => setData((current) => ({ ...current, [key]: value }));
   const changeAssignees = (ids: string[]) => {
     setAssigneeIds(ids);
+    setWorkerIds((current) => current.filter((id) => !ids.includes(id)));
+    setOverseerIds((current) => current.filter((id) => !ids.includes(id)));
+    setData((current) => ({ ...current, reviewerId: ids.includes(current.reviewerId) ? '' : current.reviewerId }));
+  };
+  const changeWorkers = (ids: string[]) => {
+    setWorkerIds(ids);
+    setAssigneeIds((current) => current.filter((id) => !ids.includes(id)));
     setOverseerIds((current) => current.filter((id) => !ids.includes(id)));
     setData((current) => ({ ...current, reviewerId: ids.includes(current.reviewerId) ? '' : current.reviewerId }));
   };
   const changeReviewer = (id: string) => {
     setData((current) => ({ ...current, reviewerId: id }));
-    if (id) { setAssigneeIds((current) => current.filter((userId) => userId !== id)); setOverseerIds((current) => current.filter((userId) => userId !== id)); }
+    if (id) { setAssigneeIds((current) => current.filter((userId) => userId !== id)); setWorkerIds((current) => current.filter((userId) => userId !== id)); setOverseerIds((current) => current.filter((userId) => userId !== id)); }
   };
   const changeOverseers = (ids: string[]) => {
     setOverseerIds(ids);
     setAssigneeIds((current) => current.filter((id) => !ids.includes(id)));
+    setWorkerIds((current) => current.filter((id) => !ids.includes(id)));
     setData((current) => ({ ...current, reviewerId: ids.includes(current.reviewerId) ? '' : current.reviewerId }));
   };
   const buildings = references.buildings.filter((building) => building.campus_id === data.campusId);
@@ -123,9 +135,9 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
   };
   const nextStep = () => {
     const requiredByStep = [
-      [[data.title, t('title')], [data.description, t('description')], [data.category, t('category')]],
+      [[data.title, t('title')], [data.description, t('description')], [data.category, t('category')], [data.workType, t('workType')]],
       [[data.campusId, t('campus')], [data.buildingId, t('building')]],
-      [[assigneeIds[0], t('pic')], [data.workType, t('workType')], [data.executionWindow === 'CUSTOM_RESTRICTION' ? data.executionWindowNote : 'ok', t('restrictionNote')]],
+      [[assigneeIds[0], t('pic')], [data.executionWindow === 'CUSTOM_RESTRICTION' ? data.executionWindowNote : 'ok', t('restrictionNote')]],
       [[data.dueDate, t('dueDate')], [data.planSummary, t('planSummary')]],
     ];
     const missing = requiredByStep[step]?.find(([value]) => !String(value).trim());
@@ -151,7 +163,7 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
     setSubmitting(true);
     try {
       if (data.reviewerId && assigneeIds.includes(data.reviewerId)) throw new Error(t('reviewerPicConflict'));
-      const body = { ...Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '')), assigneeIds, overseerIds }; 
+      const body = { ...Object.fromEntries(Object.entries(data).filter(([, value]) => value !== '')), assigneeIds, workerIds, overseerIds };
       const result = await api<{ id: string; number: string }>('/work-orders', {
         method: 'POST', body: JSON.stringify(body), headers: { 'Idempotency-Key': idempotencyKey },
       });
@@ -169,6 +181,8 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
       <Field label={t('category')} required><select value={data.category} onChange={(event) => set('category', event.target.value)}>{categoryOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
       <Field label={t('description')} required><textarea value={data.description} onChange={(event) => set('description', event.target.value)} minLength={10} rows={5} required /></Field>
       <Field label={t('priority')} required><select value={data.priority} onChange={(event) => set('priority', event.target.value)}>{priorities.map((priority) => <option key={priority}>{priorityLabels[locale][priority]}</option>)}</select></Field>
+      <Field label={t('workType')} required><select value={data.workType} onChange={(event) => { const workType = event.target.value; set('workType', workType); if (workType === 'VENDOR') setWorkerIds([]); }}>{workTypeOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
+      {data.workType === 'VENDOR' && <small>Vendor work does not use internal workers.</small>}
     </div>,
     <div className="form-grid" key="location">
       <Field label={t('campus')} required><select value={data.campusId} onChange={(event) => { const campusId = event.target.value; const buildingId = references.buildings.find((building) => building.campus_id === campusId)?.id ?? ''; setSelectedLocationIds([]); setData((current) => ({ ...current, campusId, buildingId, locationOptionId: '', floor: '', roomOrArea: '' })); }}>{references.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></Field>
@@ -179,9 +193,9 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
     </div>,
     <div className="form-grid" key="responsibility">
       <PeoplePicker users={picUsers} selected={assigneeIds} onChange={changeAssignees} label={`${t('pic')} *`} />
+      {data.workType === 'INTERNAL' && <PeoplePicker users={workerUsers} selected={workerIds} onChange={changeWorkers} label="Workers" />}
       <Field label={t('reviewer')}><select value={data.reviewerId} onChange={(event) => changeReviewer(event.target.value)}><option value="">{t('defaultManager')}</option>{reviewerUsers.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}</select></Field>
       <PeoplePicker users={overseerUsers} selected={overseerIds} onChange={changeOverseers} label={t('overseers')} />
-      <Field label={t('workType')} required><select value={data.workType} onChange={(event) => set('workType', event.target.value)}>{workTypeOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
       <Field label={t('executionWindow')}><select value={data.executionWindow} onChange={(event) => set('executionWindow', event.target.value)}>{executionWindowOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
       {data.executionWindow === 'CUSTOM_RESTRICTION' && <Field label={t('restrictionNote')} required><textarea value={data.executionWindowNote} onChange={(event) => set('executionWindowNote', event.target.value)} required /></Field>}
     </div>,
@@ -208,9 +222,11 @@ export function CreateWorkOrderForm({ references, onClose, onCreated, locale }: 
 export function ParticipantsActionForm({ order, references, locale, onClose, onChanged }: { order: WorkOrder; references: ReferenceData; locale: Locale; onClose: () => void; onChanged: () => Promise<void> | void }) {
   const t = translator(locale);
   const picUsers = references.users.filter((user) => user.roles.includes('PERSON_IN_CHARGE'));
+  const workerUsers = references.users.filter((user) => user.roles.includes('WORKER'));
   const reviewerUsers = references.users.filter((user) => user.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER'));
   const overseerUsers = references.users.filter((user) => user.roles.includes('OVERSEER'));
   const [assigneeIds, setAssigneeIds] = useState(order.assignees.map((person) => person.id));
+  const [workerIds, setWorkerIds] = useState(order.workers.map((person) => person.id));
   const [reviewerId, setReviewerId] = useState(order.reviewer_id ?? '');
   const [overseerIds, setOverseerIds] = useState(order.overseers.map((person) => person.id));
   const [reason, setReason] = useState('');
@@ -218,16 +234,24 @@ export function ParticipantsActionForm({ order, references, locale, onClose, onC
   const [submitting, setSubmitting] = useState(false);
   const changeAssignees = (ids: string[]) => {
     setAssigneeIds(ids);
+    setWorkerIds((current) => current.filter((id) => !ids.includes(id)));
+    setOverseerIds((current) => current.filter((id) => !ids.includes(id)));
+    setReviewerId((current) => ids.includes(current) ? '' : current);
+  };
+  const changeWorkers = (ids: string[]) => {
+    setWorkerIds(ids);
+    setAssigneeIds((current) => current.filter((id) => !ids.includes(id)));
     setOverseerIds((current) => current.filter((id) => !ids.includes(id)));
     setReviewerId((current) => ids.includes(current) ? '' : current);
   };
   const changeReviewer = (id: string) => {
     setReviewerId(id);
-    if (id) { setAssigneeIds((current) => current.filter((userId) => userId !== id)); setOverseerIds((current) => current.filter((userId) => userId !== id)); }
+    if (id) { setAssigneeIds((current) => current.filter((userId) => userId !== id)); setWorkerIds((current) => current.filter((userId) => userId !== id)); setOverseerIds((current) => current.filter((userId) => userId !== id)); }
   };
   const changeOverseers = (ids: string[]) => {
     setOverseerIds(ids);
     setAssigneeIds((current) => current.filter((id) => !ids.includes(id)));
+    setWorkerIds((current) => current.filter((id) => !ids.includes(id)));
     setReviewerId((current) => ids.includes(current) ? '' : current);
   };
   const submit = async (event: FormEvent) => {
@@ -236,7 +260,7 @@ export function ParticipantsActionForm({ order, references, locale, onClose, onC
     if (reviewerId && assigneeIds.includes(reviewerId)) { setError(t('reviewerPicConflict')); return; }
     setSubmitting(true); setError('');
     try {
-      await api(`/work-orders/${order.id}/participants`, { method: 'PATCH', body: JSON.stringify({ assigneeIds, reviewerId: reviewerId || null, overseerIds, reason, expectedVersion: order.version }) });
+      await api(`/work-orders/${order.id}/participants`, { method: 'PATCH', body: JSON.stringify({ assigneeIds, workerIds, reviewerId: reviewerId || null, overseerIds, reason, expectedVersion: order.version }) });
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : t('participantsUpdateFailed')); }
     finally { setSubmitting(false); }
@@ -245,6 +269,7 @@ export function ParticipantsActionForm({ order, references, locale, onClose, onC
     <header><div><span>{t('managerAction')}</span><h3>{t('editParticipants')}</h3></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
     <div className="form-grid compact">
       <PeoplePicker users={picUsers} selected={assigneeIds} onChange={changeAssignees} label={`${t('pic')} *`} />
+      {order.work_type === 'INTERNAL' && <PeoplePicker users={workerUsers} selected={workerIds} onChange={changeWorkers} label="Workers" />}
       <Field label={t('reviewer')}><select value={reviewerId} onChange={(event) => changeReviewer(event.target.value)}><option value="">{t('defaultManager')}</option>{reviewerUsers.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}</select></Field>
       <PeoplePicker users={overseerUsers} selected={overseerIds} onChange={changeOverseers} label={t('overseers')} />
       <Field label={t('reasonForChange')} required><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} required /></Field>
@@ -326,7 +351,7 @@ export function DueDateActionForm({ order, onClose, onChanged }: Omit<WorkflowFo
 
 export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFormProps, 'order' | 'currentUser' | 'onChanged'>) {
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
-  const canUpload = isManager || order.assignees.some((person) => person.id === currentUser.id);
+  const canUpload = false;
   const [evidenceType, setEvidenceType] = useState<EvidenceType>('PROGRESS');
   const [file, setFile] = useState<File | null>(null);
   const [showDriveBrowser, setShowDriveBrowser] = useState(false);
@@ -380,18 +405,83 @@ export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFo
   </section>;
 }
 
+export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick<WorkflowFormProps, 'order' | 'currentUser' | 'onChanged'>) {
+  const procurement = order.procurement;
+  const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const isPic = order.assignees.some((person) => person.id === currentUser.id);
+  const canManage = isManager || isPic;
+  const [file, setFile] = useState<File | null>(null);
+  const [attachmentId, setAttachmentId] = useState<string | null>(null);
+  const [workVersion, setWorkVersion] = useState(order.version);
+  const [showDriveBrowser, setShowDriveBrowser] = useState(false);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  if (order.work_type !== 'INTERNAL' || !procurement) return null;
+
+  const run = async (path: string, body: Record<string, unknown>) => {
+    setSubmitting(true); setError('');
+    try { await api(`/work-orders/${order.id}/procurement-proposal${path}`, { method: path === '' ? 'PATCH' : 'POST', body: JSON.stringify({ ...body, expectedVersion: workVersion, expectedProcurementVersion: procurement.version }) }); await onChanged(); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Procurement action failed.'); }
+    finally { setSubmitting(false); }
+  };
+  const uploadLocal = async () => {
+    if (!file) return;
+    setSubmitting(true); setError('');
+    try {
+      const data = new FormData();
+      data.append('evidenceType', 'PROPOSAL'); data.append('attachmentContext', 'INTERNAL_PROCUREMENT'); data.append('expectedVersion', String(workVersion)); data.append('file', file);
+      const result = await uploadWithProgress<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/upload`, data, () => undefined);
+      setAttachmentId(result.id); setWorkVersion(result.version); setFile(null);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Proposal upload failed.'); }
+    finally { setSubmitting(false); }
+  };
+  const transferDrive = async (selected: DriveBrowserItem, accessToken: string, allowCopyFallback = false) => {
+    setShowDriveBrowser(false); setSubmitting(true); setError('');
+    try {
+      const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType: 'PROPOSAL', attachmentContext: 'INTERNAL_PROCUREMENT', sourceDriveFileId: selected.id, allowCopyFallback, expectedVersion: workVersion }) });
+      setAttachmentId(result.id); setWorkVersion(result.version);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${selected.name}” cannot be moved. Create a project copy instead?`)) await transferDrive(selected, accessToken, true);
+      else setError(caught instanceof Error ? caught.message : 'Drive proposal transfer failed.');
+    } finally { setSubmitting(false); }
+  };
+  const documents = order.attachments?.filter((item) => item.attachment_context === 'INTERNAL_PROCUREMENT') ?? [];
+  return <section className="evidence-section procurement-section">
+    <div className="evidence-heading"><div><h3>Internal procurement</h3><p>Woko records submission to the external Finance process and its communicated decision.</p></div><strong>{procurement.status.replaceAll('_', ' ')}</strong></div>
+    {procurement.requirement_note && <p>{procurement.requirement_note}</p>}
+    {procurement.submitted_at && <small>Submitted by {procurement.submitted_by_name} · {new Date(procurement.submitted_at).toLocaleString()}</small>}
+    {procurement.decision_note && <p><strong>Finance decision:</strong> {procurement.decision_note} — {procurement.decided_by_name}</p>}
+    {documents.length > 0 && <div className="evidence-list">{documents.map((document) => <a key={document.id} href={document.drive_url} target="_blank" rel="noreferrer"><span><strong>{document.original_file_name ?? document.file_name}</strong><small>{document.uploaded_by}</small></span><ExternalLink /></a>)}</div>}
+    {canManage && procurement.status === 'NOT_REQUIRED' && <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const note = window.prompt('Why is procurement required?'); if (note) void run('/require', { requirementNote: note }); }}>Mark procurement required</button>}
+    {canManage && procurement.status !== 'NOT_REQUIRED' && procurement.status !== 'APPROVED' && <div className="evidence-controls">
+      <div className="upload-row"><label className="file-picker"><FileUp /><span>{file?.name ?? 'Upload procurement proposal'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="secondary-button" disabled={!file || submitting} onClick={() => void uploadLocal()}>Upload</button></div>
+      <button type="button" className="drive-browse-button" disabled={submitting} onClick={() => setShowDriveBrowser(true)}><FolderSearch /> Choose from Google Drive</button>
+      {(attachmentId || documents.length > 0) && ['PROPOSAL_REQUIRED', 'REVISION_REQUIRED'].includes(procurement.status) && <button type="button" className="primary-button" disabled={submitting} onClick={() => { if (window.confirm('I confirm that this proposal has been submitted through the external Finance process.')) void run('/submit', { attachmentIds: attachmentId ? [attachmentId] : documents.map((item) => item.id), confirmation: true }); }}>Record proposal submitted</button>}
+      {procurement.status === 'REJECTED' && <button type="button" className="primary-button" disabled={submitting} onClick={() => { const note = window.prompt('Reason for the revised proposal', procurement.requirement_note ?? ''); if (note) void run('/require', { requirementNote: note }); }}>Start revised proposal</button>}
+      <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const note = window.prompt('Update procurement note', procurement.requirement_note ?? ''); if (note) void run('', { requirementNote: note }); }}>Update note</button>
+      <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const reason = window.prompt('Reason procurement is no longer required'); if (reason) void run('/clear', { reason }); }}>Mark no longer required</button>
+    </div>}
+    {isManager && procurement.status === 'SUBMITTED' && <div className="segmented-control">{(['APPROVED', 'REJECTED', 'REVISION_REQUIRED'] as const).map((decision) => <button type="button" key={decision} disabled={submitting} onClick={() => { const decisionNote = window.prompt(`Decision note for ${decision.replaceAll('_', ' ')}`); if (decisionNote) void run('/decision', { decision, decisionNote }); }}>{decision.replaceAll('_', ' ')}</button>)}</div>}
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {showDriveBrowser && <DriveBrowser title="Choose procurement proposal" onClose={() => setShowDriveBrowser(false)} onSelect={(selected, accessToken) => void transferDrive(selected, accessToken)} />}
+  </section>;
+}
+
 export function WorkflowActionForm({ order, currentUser, onClose, onChanged, initialAction = 'forward' }: WorkflowFormProps) {
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const [action, setAction] = useState<'forward' | 'reject' | 'reopen'>(initialAction);
+  const isAssignedWorker = currentUser.roles.includes('WORKER') && order.workers.some((person) => person.id === currentUser.id);
   const [progressMode, setProgressMode] = useState<'mid' | 'complete'>('mid');
   const [note, setNote] = useState('');
   const [reason, setReason] = useState('');
   const [plannedStartDate, setPlannedStartDate] = useState(order.planned_start_date ?? '');
   const [waiverReason, setWaiverReason] = useState('');
+  const [procurementOverrideReason, setProcurementOverrideReason] = useState('');
   const [progressImage, setProgressImage] = useState<File | null>(null);
   const [uploadedImageVersion, setUploadedImageVersion] = useState<number | null>(null);
   const [uploadedAttachmentId, setUploadedAttachmentId] = useState<string | null>(null);
   const [uploadedAsCompletion, setUploadedAsCompletion] = useState(false);
+  const [showProgressDriveBrowser, setShowProgressDriveBrowser] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -421,6 +511,18 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
     }
     setError(''); setProgressImage(file);
   };
+  const transferProgressDrive = async (selected: DriveBrowserItem, accessToken: string, allowCopyFallback = false) => {
+    setShowProgressDriveBrowser(false); setSubmitting(true); setError('');
+    try {
+      const context = isMidProgressUpdate ? 'PROGRESS_UPDATE' : 'COMPLETION';
+      const evidenceType = isMidProgressUpdate ? 'PROGRESS' : 'COMPLETION';
+      const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, attachmentContext: context, sourceDriveFileId: selected.id, allowCopyFallback, expectedVersion: order.version }) });
+      setUploadedAttachmentId(result.id); setUploadedImageVersion(result.version); setUploadedAsCompletion(!isMidProgressUpdate);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${selected.name}” cannot be moved. Create a project copy instead?`)) await transferProgressDrive(selected, accessToken, true);
+      else setError(caught instanceof Error ? caught.message : 'Drive attachment failed.');
+    } finally { setSubmitting(false); }
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setSubmitting(true);
     try {
@@ -433,6 +535,7 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
           const data = new FormData();
           data.append('evidenceType', !isMidProgressUpdate && (targetStage === 'REVIEW' || targetStage === 'COMPLETED') ? 'COMPLETION' : 'PROGRESS');
           data.append('expectedVersion', String(expectedVersion));
+          data.append('attachmentContext', isMidProgressUpdate ? 'PROGRESS_UPDATE' : 'COMPLETION');
           data.append('file', progressImage);
           const uploaded = await uploadWithProgress<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/upload`, data, setUploadProgress);
           expectedVersion = uploaded.version;
@@ -445,7 +548,7 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
         if (isMidProgressUpdate) {
           await api(`/work-orders/${order.id}/progress-update`, { method: 'POST', body: JSON.stringify({ note, expectedVersion, attachmentIds: attachmentId ? [attachmentId] : [] }) });
         } else {
-          await api(`/work-orders/${order.id}/transitions`, { method: 'POST', body: JSON.stringify({ toStage: targetStage, note, reason: action === 'reject' ? reason : undefined, expectedVersion, plannedStartDate: targetStage === 'SCHEDULED' ? plannedStartDate : undefined, completionEvidenceWaiverReason: targetStage === 'COMPLETED' && !hasCompletionPhotoForSubmit ? waiverReason : undefined, attachmentIds: attachmentId ? [attachmentId] : [] }) });
+          await api(`/work-orders/${order.id}/transitions`, { method: 'POST', body: JSON.stringify({ toStage: targetStage, note, reason: action === 'reject' ? reason : undefined, expectedVersion, plannedStartDate: targetStage === 'SCHEDULED' ? plannedStartDate : undefined, completionEvidenceWaiverReason: targetStage === 'COMPLETED' && !hasCompletionPhotoForSubmit ? waiverReason : undefined, procurementOverrideReason: targetStage === 'REVIEW' && isManager ? procurementOverrideReason || undefined : undefined, attachmentIds: attachmentId ? [attachmentId] : [] }) });
         }
       }
       await onChanged();
@@ -453,24 +556,26 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
   };
   return <form className="action-panel" onSubmit={submit}>
     <header><div><span>{progress.label} · {progress.percent}%</span><h3>{canReopen ? 'Reopen completed work' : order.workflow_stage === 'REVIEW' ? 'Complete the final check' : 'Update project progress'}</h3><p className="action-intro">{isInProgressUpdate ? 'Record an ongoing update or mark the work as completed and send it for review.' : 'Add a short, clear update. Woko will move the project to its next trackable phase.'}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
-    {isInProgressUpdate && <div className="segmented-control progress-mode-control"><button type="button" className={progressMode === 'mid' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('mid')}>Progress update</button><button type="button" className={progressMode === 'complete' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('complete')}>Work completed</button></div>}
+    {isInProgressUpdate && <div className="segmented-control progress-mode-control"><button type="button" className={progressMode === 'mid' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('mid')}>Progress update</button>{!isAssignedWorker && <button type="button" className={progressMode === 'complete' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('complete')}>Work completed</button>}</div>}
     {(canReject || canReopen) && <div className="segmented-control">{order.status !== 'COMPLETED' && <button type="button" className={action === 'forward' ? 'active' : ''} onClick={() => setAction('forward')}>Approve</button>}{canReject && <button type="button" className={action === 'reject' ? 'active' : ''} onClick={() => setAction('reject')}>Reject</button>}{canReopen && <button type="button" className={action === 'reopen' ? 'active' : ''} onClick={() => setAction('reopen')}>Reopen</button>}</div>}
     {vendorStructuredStage && !isManager && <p className="form-error">Use the structured vendor action for this stage.</p>}
     <div className="form-grid compact">
       {targetStage === 'SCHEDULED' && <Field label="When will work start?" required><input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} required /></Field>}
 
       {order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence && <p className="form-error">Add at least one proposal file before submitting for approval.</p>}
+      {targetStage === 'REVIEW' && isManager && order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status) && <Field label="Procurement override reason" required hint="Unresolved procurement blocks review unless a manager documents an override."><textarea rows={3} value={procurementOverrideReason} onChange={(event) => setProcurementOverrideReason(event.target.value)} required /></Field>}
       {targetStage === 'COMPLETED' && !hasCompletionPhotoForSubmit && <Field label="Manager waiver reason" required hint="A completion photo is required. A Facilities Manager may waive it with a documented reason."><textarea rows={3} value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} required /></Field>}
       {targetStage === 'COMPLETED' && hasCompletionPhotoForSubmit && <p className="evidence-confirmation"><Check /> {progressImage ? 'The selected image will be attached as completion evidence.' : uploadedAsCompletion ? 'The image was uploaded as completion evidence.' : 'Completion photo evidence is attached.'}</p>}
       {(action === 'reject' || action === 'reopen') && <Field label="Reason" required><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} required /></Field>}
       {action !== 'reopen' && <Field label={targetStage === 'COMPLETED' ? 'Final check note' : isMidProgressUpdate ? 'Progress update' : targetStage === 'REVIEW' ? 'Completion note' : 'Short update'} required hint={isMidProgressUpdate ? 'Example: Installation is 60% complete; electrical work continues tomorrow.' : targetStage === 'REVIEW' ? 'Add one note confirming the whole work order is finished and ready for review.' : 'Example: Parts arrived and installation starts Monday.'}><textarea rows={4} value={note} onChange={(event) => setNote(event.target.value)} minLength={3} required /></Field>}
-      {canAttachProgressImage && uploadedImageVersion === null && <Field label="Progress image" hint={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? 'The image will be saved as completion evidence.' : 'Optional. The image will be saved as progress evidence.'}><label className="file-picker progress-image-picker"><FileUp /><span>{progressImage?.name ?? 'Choose an image'}</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => selectProgressImage(event.target.files?.[0] ?? null)} /></label></Field>}
+      {canAttachProgressImage && uploadedImageVersion === null && <Field label="Progress evidence" hint={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? 'The file will be saved as completion evidence.' : 'Optional progress evidence.'}><label className="file-picker progress-image-picker"><FileUp /><span>{progressImage?.name ?? 'Upload from device'}</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => selectProgressImage(event.target.files?.[0] ?? null)} /></label><button type="button" className="drive-browse-button" onClick={() => setShowProgressDriveBrowser(true)}><FolderSearch /> Choose from Google Drive</button></Field>}
       {uploadedImageVersion !== null && <p className="evidence-confirmation"><Check /> Image uploaded. Confirm progress to finish this update.</p>}
       {action !== 'reopen' && order.drive_provisioning_status !== 'COMPLETE' && <p className="muted progress-image-unavailable">Images can be added after the project Drive folder is ready.</p>}
       {submitting && uploadProgress > 0 && uploadProgress < 100 && <div className="upload-progress" aria-label={`Upload ${uploadProgress}%`}><span style={{ width: `${uploadProgress}%` }} /></div>}
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
     <footer><button className="primary-button" disabled={submitting || (!targetStage && action !== 'reopen') || vendorStructuredStage || (order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence)}>{submitting ? 'Saving...' : action === 'reject' ? 'Reject back to In Progress' : action === 'reopen' ? 'Reopen work order' : isMidProgressUpdate ? 'Save progress update' : targetStage === 'REVIEW' ? 'Mark work completed' : targetStage === 'COMPLETED' ? 'Approve completion' : 'Confirm progress'}</button></footer>
+    {showProgressDriveBrowser && <DriveBrowser title="Choose progress evidence" onClose={() => setShowProgressDriveBrowser(false)} onSelect={(selected, accessToken) => void transferProgressDrive(selected, accessToken)} />}
   </form>;
 }
 
@@ -484,6 +589,7 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
   const [vendorName, setVendorName] = useState('');
   const [quotedCost, setQuotedCost] = useState('');
   const [proposalFile, setProposalFile] = useState<DriveBrowserItem | null>(null);
+  const [localProposalFile, setLocalProposalFile] = useState<File | null>(null);
   const [proposalDriveToken, setProposalDriveToken] = useState('');
   const [showProposalDriveBrowser, setShowProposalDriveBrowser] = useState(false);
   const [proposalValidityDate, setProposalValidityDate] = useState('');
@@ -499,7 +605,14 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
       if (mode === 'search') {
         await api(`/work-orders/${order.id}/vendor-search`, { method: 'POST', body: JSON.stringify({ vendorSearchNote, potentialVendorName: potentialVendorName || undefined, contactedVendorName: contactedVendorName || undefined, shortlistNote: shortlistNote || undefined, vendorContactDetails: vendorContactDetails || undefined, expectedVersion: order.version }) });
       } else if (mode === 'proposal') {
-        const recordProposal = (allowCopyFallback: boolean) => api(`/work-orders/${order.id}/proposal`, { method: 'POST', headers: proposalFile ? { 'X-Google-Drive-Token': proposalDriveToken } : undefined, body: JSON.stringify({ vendorName, quotedCost: parseIdrInput(quotedCost), proposalValidityDate: proposalValidityDate || undefined, expectedWorkDuration: expectedWorkDuration || undefined, proposalNotes: proposalNotes || undefined, sourceDriveFileId: proposalFile?.id, allowCopyFallback, expectedVersion: order.version }) });
+        let expectedVersion = order.version;
+        let attachmentIds: string[] = [];
+        if (localProposalFile) {
+          const upload = new FormData(); upload.append('evidenceType', 'PROPOSAL'); upload.append('attachmentContext', 'VENDOR_PROPOSAL'); upload.append('expectedVersion', String(expectedVersion)); upload.append('file', localProposalFile);
+          const uploaded = await uploadWithProgress<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/upload`, upload, () => undefined);
+          expectedVersion = uploaded.version; attachmentIds = [uploaded.id];
+        }
+        const recordProposal = (allowCopyFallback: boolean) => api(`/work-orders/${order.id}/proposal`, { method: 'POST', headers: proposalFile ? { 'X-Google-Drive-Token': proposalDriveToken } : undefined, body: JSON.stringify({ vendorName, quotedCost: parseIdrInput(quotedCost), proposalValidityDate: proposalValidityDate || undefined, expectedWorkDuration: expectedWorkDuration || undefined, proposalNotes: proposalNotes || undefined, attachmentIds, sourceDriveFileId: proposalFile?.id, allowCopyFallback, expectedVersion }) });
         try { await recordProposal(false); }
         catch (caught) {
           if (proposalFile && caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${proposalFile.name}” cannot be moved. Create a copy in the project folder instead?\n\nThe original file will remain in its current Drive location.`)) await recordProposal(true);
@@ -522,12 +635,12 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
     {mode === 'proposal' && <div className="form-grid compact">
       <Field label="Vendor name" required><input value={vendorName} onChange={(event) => setVendorName(event.target.value)} required /></Field>
       <Field label="Quoted cost" required hint={parseIdrInput(quotedCost) ? formatIdrCurrency(parseIdrInput(quotedCost)) : 'Enter the total proposal value in IDR.'}><div className="currency-input"><span>Rp</span><input inputMode="numeric" value={quotedCost} onChange={(event) => setQuotedCost(formatIdrInput(event.target.value))} placeholder="0" required /></div></Field>
-      <div className="proposal-attachment"><span>Proposal document <b>*</b></span>{proposalFile ? <button type="button" className="selected-drive-file" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /><span><strong>{proposalFile.name}</strong><small>Will transfer into 03 Proposals when saved</small></span></button> : <button type="button" className="drive-browse-button" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /> Choose from Google Drive <small>Open the native Google Picker</small></button>}{hasProposalEvidence && !proposalFile && <small className="existing-evidence-note"><Check /> An existing proposal document is already attached.</small>}</div>
+      <div className="proposal-attachment"><span>Vendor proposal document <b>*</b></span><label className="file-picker"><FileUp /><span>{localProposalFile?.name ?? 'Upload from device'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => { setLocalProposalFile(event.target.files?.[0] ?? null); setProposalFile(null); }} /></label>{proposalFile ? <button type="button" className="selected-drive-file" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /><span><strong>{proposalFile.name}</strong><small>Will transfer into 03 Proposals when saved</small></span></button> : <button type="button" className="drive-browse-button" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /> Choose from Google Drive <small>Open the native Google Picker</small></button>}{hasProposalEvidence && !proposalFile && !localProposalFile && <small className="existing-evidence-note"><Check /> An existing proposal document is already attached.</small>}</div>
       <details className="optional-fields"><summary>Add optional proposal details</summary><div className="form-grid compact"><Field label="Proposal validity date"><input type="date" value={proposalValidityDate} onChange={(event) => setProposalValidityDate(event.target.value)} /></Field><Field label="Expected work duration"><input value={expectedWorkDuration} onChange={(event) => setExpectedWorkDuration(event.target.value)} placeholder="Example: 5 working days" /></Field><Field label="Proposal notes"><textarea rows={3} value={proposalNotes} onChange={(event) => setProposalNotes(event.target.value)} /></Field></div></details>
     </div>}
     {mode === 'submit' && <div className="form-grid compact"><Field label="Submission note" required><textarea rows={4} value={submissionNote} onChange={(event) => setSubmissionNote(event.target.value)} required /></Field>{!hasProposalEvidence && <p className="form-error">A proposal document is required before submission.</p>}</div>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting || (mode === 'proposal' && !hasProposalEvidence && !proposalFile) || (mode === 'submit' && !hasProposalEvidence)}>{submitting ? 'Saving...' : mode === 'search' ? 'Save vendor search' : mode === 'proposal' ? 'Record proposal' : 'Submit for approval'}</button></footer>
+    <footer><button className="primary-button" disabled={submitting || (mode === 'proposal' && !hasProposalEvidence && !proposalFile && !localProposalFile) || (mode === 'submit' && !hasProposalEvidence)}>{submitting ? 'Saving...' : mode === 'search' ? 'Save vendor search' : mode === 'proposal' ? 'Record proposal' : 'Submit for approval'}</button></footer>
     {showProposalDriveBrowser && <DriveBrowser title="Choose vendor proposal" onClose={() => setShowProposalDriveBrowser(false)} onSelect={(selected, accessToken) => { if (window.confirm(`Use “${selected.name}” as the vendor proposal?\n\nWhen you save, Woko will transfer it from My Drive into the project Shared Drive.`)) { setProposalFile(selected); setProposalDriveToken(accessToken); } setShowProposalDriveBrowser(false); }} />}
   </form>;
 }

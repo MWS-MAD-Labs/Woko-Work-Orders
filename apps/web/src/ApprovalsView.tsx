@@ -11,7 +11,7 @@ interface CompletionDecision {
 }
 
 export function ApprovalsView({ currentUser, onClose, onOpenOrder }: { currentUser: CurrentUser; onClose: () => void; onOpenOrder: (order: WorkOrder) => void }) {
-  const [queue, setQueue] = useState<ApprovalQueue>({ proposalApprovals: [], completionReviews: [] });
+  const [queue, setQueue] = useState<ApprovalQueue>({ proposalApprovals: [], completionReviews: [], internalProcurementReviews: [] });
   const [proposalDecision, setProposalDecision] = useState<WorkOrder | null>(null);
   const [completionDecision, setCompletionDecision] = useState<CompletionDecision | null>(null);
   const [error, setError] = useState('');
@@ -66,6 +66,15 @@ export function ApprovalsView({ currentUser, onClose, onOpenOrder }: { currentUs
           {!item.can_decide && <small className="self-approval-note">A reviewer may decide a proposal they submitted, but a PIC on this work order cannot.</small>}
         </article>)}</div>
         {!queue.proposalApprovals.length && !error && <p className="empty-approval">No vendor proposals are awaiting approval.</p>}
+      </section>
+
+      <section className="approval-queue-section" aria-labelledby="internal-procurement-heading">
+        <header><div><span>Required review</span><h3 id="internal-procurement-heading">Internal Procurement Proposals Awaiting Facilities Review</h3></div><strong>{queue.internalProcurementReviews.length}</strong></header>
+        <div className="approval-list">{queue.internalProcurementReviews.map((item) => <article className="approval-card" key={item.id}>
+          <div className="approval-card-main"><span>{item.work_order_number} · {item.priority}</span><h3>{item.title}</h3><p>{item.requirement_note}</p><dl><div><dt>Submitted by</dt><dd>{item.submitted_by_name}</dd></div><div><dt>Submitted</dt><dd>{format(new Date(item.submitted_at), 'd MMM yyyy, HH:mm')}</dd></div></dl><div className="approval-link-list">{item.proposal_documents.map((document) => <a key={document.id} href={document.drive_url} target="_blank" rel="noreferrer"><FileText /><span><strong>{document.file_name}</strong><small>{document.uploaded_by}</small></span><ExternalLink /></a>)}</div></div>
+          <div className="approval-card-actions"><button className="primary-button" onClick={() => void openOrder(item.id)}>Review & decide</button></div>
+        </article>)}</div>
+        {!queue.internalProcurementReviews.length && !error && <p className="empty-approval">No internal procurement proposals are awaiting review.</p>}
       </section>
 
       <section className="approval-queue-section" aria-labelledby="completion-reviews-heading">

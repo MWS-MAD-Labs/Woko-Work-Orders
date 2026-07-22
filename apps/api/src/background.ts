@@ -5,6 +5,7 @@ import { sendNotificationEmail } from './email.js';
 import { renderInvitationEmail } from './invitation-email.js';
 import { renderNotificationEmail } from './notification-email.js';
 import { localizeNotification, type NotificationLocale } from './notification-localization.js';
+import { deleteDriveFile } from './drive.js';
 
 type JobRow = {
   id: string;
@@ -174,7 +175,23 @@ async function claimJob(): Promise<JobRow | undefined> {
   });
 }
 
+async function cleanupPendingAttachments() {
+  const expired = await sql<Array<{ id: string; drive_file_id: string | null }>>`
+    select id, drive_file_id from attachments
+    where status = 'PENDING' and removed_at is null and created_at < now() - interval '24 hours'
+    order by created_at limit 100
+  `;
+  for (const attachment of expired) {
+    if (attachment.drive_file_id) await deleteDriveFile(attachment.drive_file_id).catch(() => undefined);
+    await sql`update attachments set removed_at = now(), status = 'ATTACHED', pending_action_token = null where id = ${attachment.id} and status = 'PENDING'`;
+  }
+}
+
 async function processJob(job: JobRow) {
+  if (job.job_type === 'ATTACHMENT_DRAFT_CLEANUP') {
+    await cleanupPendingAttachments();
+    return;
+  }
   if (job.job_type === 'REMINDER_SCAN') {
     const localDate = zString(job.payload.localDate);
     await generateReminders(localDate);
@@ -243,11 +260,18 @@ async function workOnce() {
 
 async function scheduleReminderScan() {
   const localDate = localDateInTimeZone();
-  await sql`
-    insert into background_jobs (job_type, payload, idempotency_key)
-    values ('REMINDER_SCAN', ${sql.json({ localDate })}, ${`reminder-scan:${localDate}`})
-    on conflict (idempotency_key) do nothing
-  `;
+  await Promise.all([
+    sql`
+      insert into background_jobs (job_type, payload, idempotency_key)
+      values ('REMINDER_SCAN', ${sql.json({ localDate })}, ${`reminder-scan:${localDate}`})
+      on conflict (idempotency_key) do nothing
+    `,
+    sql`
+      insert into background_jobs (job_type, payload, idempotency_key)
+      values ('ATTACHMENT_DRAFT_CLEANUP', '{}'::jsonb, ${`attachment-cleanup:${localDate}`})
+      on conflict (idempotency_key) do nothing
+    `,
+  ]);
   await sql`
     update background_jobs set status = 'PENDING', locked_at = null, locked_by = null,
       run_at = now(), updated_at = now(), last_error = coalesce(last_error, 'Recovered stale worker lock.')

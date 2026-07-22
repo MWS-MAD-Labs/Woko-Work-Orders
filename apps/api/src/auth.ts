@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { Role } from '@woko/domain';
+import { canCreateWorkOrder, type Role } from '@woko/domain';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from './config.js';
 import { sql } from './database/client.js';
@@ -101,6 +101,12 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     preferredLocale: user.preferred_locale,
     sessionExpiresAt: user.expires_at,
   };
+}
+
+export async function requireWorkOrderCreator(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!canCreateWorkOrder(request.currentUser.roles)) {
+    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Administrator, Facilities Manager, or PIC permission is required.', requestId: request.id } });
+  }
 }
 
 export async function requireManager(request: FastifyRequest, reply: FastifyReply): Promise<void> {

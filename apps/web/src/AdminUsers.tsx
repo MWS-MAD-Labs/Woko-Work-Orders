@@ -4,8 +4,10 @@ import { roles, type Role } from '@woko/domain';
 import { api } from './api';
 import type { AdminUser } from './types';
 
+const roleLabels: Record<Role, string> = { ADMINISTRATOR: 'Administrator', FACILITIES_MANAGER: 'Facilities Manager', PERSON_IN_CHARGE: 'Person in Charge', WORKER: 'Worker', OVERSEER: 'Overseer' };
+
 function RoleChecks({ selected, onChange }: { selected: Role[]; onChange: (roles: Role[]) => void }) {
-  return <div className="role-checks">{roles.map((role) => <label key={role}><input type="checkbox" checked={selected.includes(role)} onChange={(event) => onChange(event.target.checked ? [...selected, role] : selected.filter((item) => item !== role))} /> {role.replaceAll('_', ' ')}</label>)}</div>;
+  return <div className="role-checks">{roles.map((role) => <label key={role} title={role === 'WORKER' ? 'Eligible for assignment to internal work orders; does not grant PIC or manager authority.' : undefined}><input type="checkbox" checked={selected.includes(role)} onChange={(event) => onChange(event.target.checked ? [...selected, role] : selected.filter((item) => item !== role))} /> {roleLabels[role]}</label>)}</div>;
 }
 
 export function AdminUsers({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> | void }) {

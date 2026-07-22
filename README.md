@@ -1,14 +1,16 @@
 # Woko
 
-Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.5.1** is the current production release candidate.
+Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.6.0** is the current production release candidate.
 
-> **Release status:** Deployed for final production verification. See the [v0.5.1 release notes](docs/releases/v0.5.1.md) for deployment details and validation requirements.
+> **Release status:** Ready for release validation. See the [v0.6.0 release notes](docs/releases/v0.6.0.md) for upgrade details and validation requirements.
 
-## What v0.5.1 includes
+## What v0.6.0 includes
 
 - Mobile-first installable PWA with Bahasa Indonesia and English interfaces
 - Internal and vendor work-order workflows with role-aware transitions
-- Work assignment for PICs, reviewers, and overseers
+- Work assignment for PICs, restricted internal workers, reviewers, and overseers
+- Internal procurement proposal tracking and Facilities review queue
+- PIC-authorized work-order creation
 - Priority, due-date, overdue, blocked, and at-risk tracking
 - Proposal approval and completion review flows
 - Timeline updates, discussions, evidence, and immutable audit records
@@ -123,6 +125,7 @@ By default the application is published from the web container at `http://<host>
 - [Architecture overview](docs/architecture.md)
 - [Docker deployment guide](docs/deployment/docker.md)
 - [Komodo deployment guide](docs/deployment/komodo.md)
+- [v0.6.0 release notes](docs/releases/v0.6.0.md)
 - [v0.5.1 release notes](docs/releases/v0.5.1.md)
 - [v0.1.0 release notes](docs/releases/v0.1.0.md)
 
@@ -136,7 +139,7 @@ By default the application is published from the web container at `http://<host>
 
 ## Versioning
 
-The root package and all workspaces identify this release candidate as `0.5.1`. Release tags and GitHub releases are created only after the deployed commit passes production verification.
+The root package and all workspaces identify this release candidate as `0.6.0`. Release tags and GitHub releases are created only after the deployed commit passes production verification.
 
 ## License
 

@@ -72,8 +72,44 @@ export async function provisionWorkOrderFolder(number: string, title: string): P
   };
 }
 
+export async function createDriveFolderPermission(folderId: string, email: string): Promise<string> {
+  try {
+    const response = await getDrive().permissions.create({
+      fileId: folderId,
+      supportsAllDrives: true,
+      sendNotificationEmail: false,
+      requestBody: { type: 'user', role: 'reader', emailAddress: email },
+      fields: 'id',
+    });
+    if (!response.data.id) throw new Error('DRIVE_PERMISSION_ID_MISSING');
+    return response.data.id;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/sharing|permission|policy|domain/i.test(message)) throw new Error('DRIVE_FOLDER_SHARING_NOT_ALLOWED');
+    throw new Error('DRIVE_FOLDER_ACCESS_PENDING');
+  }
+}
+
+export async function deleteDriveFolderPermission(folderId: string, permissionId: string): Promise<void> {
+  try {
+    await getDrive().permissions.delete({ fileId: folderId, permissionId, supportsAllDrives: true });
+  } catch (error) {
+    const status = typeof error === 'object' && error !== null && 'code' in error ? Number(error.code) : undefined;
+    if (status !== 404) throw new Error('DRIVE_FOLDER_PERMISSION_REMOVAL_PENDING');
+  }
+}
+
 export async function deleteDriveFile(fileId: string): Promise<void> {
-  await getDrive().files.delete({ fileId, supportsAllDrives: true });
+  try {
+    await getDrive().files.delete({ fileId, supportsAllDrives: true });
+  } catch (deleteError) {
+    try {
+      await getDrive().files.update({ fileId, supportsAllDrives: true, requestBody: { trashed: true }, fields: 'id,trashed' });
+    } catch (trashError) {
+      const status = typeof trashError === 'object' && trashError !== null && 'code' in trashError ? Number(trashError.code) : undefined;
+      if (status !== 404) throw deleteError;
+    }
+  }
 }
 
 export async function uploadDriveFile(input: { folderId: string; fileName: string; mimeType: string; buffer: Buffer }): Promise<{ id: string; webViewLink: string }> {
@@ -185,7 +221,11 @@ export async function transferUserDriveFile(input: { accessToken: string; expect
 export async function rollbackUserDriveTransfer(accessToken: string, transfer: UserDriveTransfer, projectFolderId: string): Promise<void> {
   const { drive } = getUserDrive(accessToken);
   if (transfer.mode === 'COPIED') {
-    await drive.files.delete({ fileId: transfer.id, supportsAllDrives: true });
+    try {
+      await drive.files.delete({ fileId: transfer.id, supportsAllDrives: true });
+    } catch {
+      await drive.files.update({ fileId: transfer.id, supportsAllDrives: true, requestBody: { trashed: true }, fields: 'id,trashed' });
+    }
     return;
   }
   await drive.files.update({

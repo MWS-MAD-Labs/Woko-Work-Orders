@@ -4,7 +4,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
 import { translator, type Locale } from './i18n';
-import { ConditionActionForm, CreateWorkOrderForm, DueDateActionForm, EvidencePanel, ParticipantsActionForm, ProposalDecisionForm, VendorActionForm, WorkflowActionForm } from './WorkOrderForms';
+import { ConditionActionForm, CreateWorkOrderForm, DueDateActionForm, EvidencePanel, InternalProcurementPanel, ParticipantsActionForm, ProposalDecisionForm, VendorActionForm, WorkflowActionForm } from './WorkOrderForms';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
 import { OrganizationSettings } from './OrganizationSettings';
 import { ApprovalsView } from './ApprovalsView';
@@ -83,10 +83,13 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
   const dateLocale = locale === 'id' ? id : enUS;
   const [action, setAction] = useState<'workflow' | 'vendor' | 'proposal-decision' | 'condition' | 'due-date' | 'participants' | null>(null);
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
-  const canProgress = order.status === 'ACTIVE' && (isManager || order.assignees.some((person) => person.id === currentUser.id));
-  const canChangeCondition = canProgress;
+  const isPic = order.assignees.some((person) => person.id === currentUser.id);
+  const isWorker = order.workers.some((person) => person.id === currentUser.id);
+  const workerCanProgress = currentUser.roles.includes('WORKER') && isWorker && order.status === 'ACTIVE' && order.work_type === 'INTERNAL' && order.workflow_stage === 'IN_PROGRESS';
+  const canProgress = order.status === 'ACTIVE' && (isManager || isPic || workerCanProgress);
+  const canChangeCondition = order.status === 'ACTIVE' && (isManager || isPic);
   const canManageParticipants = isManager || order.assignees.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id;
-  const canComment = isManager || order.assignees.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id || order.overseers.some((person) => person.id === currentUser.id);
+  const canComment = isManager || isPic || isWorker || order.reviewer_id === currentUser.id || order.overseers.some((person) => person.id === currentUser.id);
   const canReopen = order.status === 'COMPLETED' && isManager;
   const isStructuredVendorStage = order.work_type === 'VENDOR' && ['PLANNED', 'FINDING_VENDOR', 'PROPOSAL'].includes(order.workflow_stage);
   const isProposalApproval = order.work_type === 'VENDOR' && order.workflow_stage === 'APPROVAL';
@@ -111,6 +114,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
           <header><div><h3>{t('peopleInvolved')}</h3><p>{canManageParticipants ? t('editParticipants') : t('participantManagerOnly')}</p></div>{canManageParticipants && <button className="secondary-button" onClick={() => setAction('participants')}>{t('managePeople')}</button>}</header>
           <div className="participant-role-grid">
             <div><span>{t('pic')}</span><div className="participant-list">{order.assignees.map((person) => <span key={person.id}><Avatar name={person.full_name} /> {person.full_name}</span>)}</div></div>
+            {order.work_type === 'INTERNAL' && <div><span>Workers</span><strong>{order.workers.length ? order.workers.map((person) => person.full_name).join(', ') : '—'}</strong></div>}
             <div><span>{t('reviewer')}</span><strong>{order.reviewer_name ?? t('defaultManager')}</strong></div>
             <div><span>{t('overseers')}</span><strong>{order.overseers.length ? order.overseers.map((person) => person.full_name).join(', ') : '—'}</strong></div>
           </div>
@@ -120,6 +124,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
           <div><dt>{t('location')}</dt><dd>{order.building}, {order.room_or_area}</dd></div>
           <div><dt>{t('workType')}</dt><dd>{order.work_type}</dd></div>
         </dl>
+        <InternalProcurementPanel order={order as WorkOrder} currentUser={currentUser} onChanged={onChanged} />
         <EvidencePanel order={order as WorkOrder} currentUser={currentUser} onChanged={onChanged} />
         <section className="timeline-section"><h3>{t('timeline')}</h3><p className="timeline-help">{t('commentAccess')}</p>{order.updates?.length ? order.updates.map((update) => {
           const participantChanges = update.update_type === 'PARTICIPANTS_CHANGED' ? formatParticipantChanges(update.structured_data, references.users, locale) : [];
@@ -211,9 +216,10 @@ export default function App() {
   if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} />;
 
   const visibleOrders = workView === 'mine'
-    ? orders.filter((order) => order.assignee_id === currentUser.id || order.assignees?.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id || order.overseers?.some((person) => person.id === currentUser.id))
+    ? orders.filter((order) => order.assignee_id === currentUser.id || order.assignees?.some((person) => person.id === currentUser.id) || order.workers?.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id || order.overseers?.some((person) => person.id === currentUser.id))
     : orders;
   const filtered = visibleOrders.filter((order) => `${order.work_order_number} ${order.title} ${order.building} ${order.room_or_area}`.toLowerCase().includes(deferredQuery));
+  const canCreate = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER' || role === 'PERSON_IN_CHARGE');
   const counts = {
     active: filtered.filter((order) => order.status === 'ACTIVE').length,
     overdue: filtered.filter((order) => order.deadlineGroup === 'OVERDUE').length,
@@ -231,7 +237,7 @@ export default function App() {
     <main id="top">
       <header className="mobile-header"><button className="icon-button mobile-language-button" aria-label={t('language')} onClick={changeLocale}><Languages /></button><a className="brand compact" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a><button className="icon-button notification-button" aria-label={t('notifications')} onClick={() => setShowNotifications(true)}><Bell />{unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button></header>
       <div className="page-content" key={workView}>
-        <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{workView === 'mine' ? t('myWork') : t('allWork')}</h1><p>{t('overview')}</p></div><div className="header-actions"><button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button></div></div>
+        <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{workView === 'mine' ? t('myWork') : t('allWork')}</h1><p>{t('overview')}</p></div><div className="header-actions">{canCreate && <button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button>}</div></div>
 
         <section className="metric-grid" aria-label={t('overview')}>
           <article><span className="metric-icon navy"><BriefcaseBusiness /></span><span><strong>{counts.active}</strong><small>{t('active')}</small></span></article>
@@ -253,13 +259,13 @@ export default function App() {
       </div>
     </main>
 
-    <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>
+    {canCreate && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
     <nav className="bottom-nav" aria-label="Mobile navigation"><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}><BriefcaseBusiness /><span>{t('allWork')}</span></button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}><ClipboardCheck /><span>{t('myWork')}</span></button><button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button><button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button></nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} />}
     {showOrganizationSettings && currentUser.roles.includes('ADMINISTRATOR') && <OrganizationSettings onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
     {showNotifications && <NotificationsView onClose={() => setShowNotifications(false)} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} />}
     {showReports && <ReportsView onClose={() => setShowReports(false)} />}
-    {showCreate && references && <div className="sheet-backdrop" onMouseDown={() => setShowCreate(false)}><div onMouseDown={(event) => event.stopPropagation()}><CreateWorkOrderForm references={references} locale={locale} onClose={() => setShowCreate(false)} onCreated={async (id) => { setShowCreate(false); await loadOrders(); setSelected(await api<Order>(`/work-orders/${id}`)); }} /></div></div>}
+    {showCreate && references && <div className="sheet-backdrop" onMouseDown={() => setShowCreate(false)}><div onMouseDown={(event) => event.stopPropagation()}><CreateWorkOrderForm references={references} currentUser={currentUser} locale={locale} onClose={() => setShowCreate(false)} onCreated={async (id) => { setShowCreate(false); await loadOrders(); setSelected(await api<Order>(`/work-orders/${id}`)); }} /></div></div>}
   </div>;
 }

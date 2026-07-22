@@ -77,7 +77,8 @@ Authorization combines global roles and work-order participation:
 
 - Administrators manage users and organization settings.
 - Administrators and facilities managers perform management approvals and broader workflow changes.
-- PICs can operate assigned work within workflow policy.
+- PICs can create work orders and operate assigned work within workflow policy.
+- Workers are globally eligible for internal assignment, but assignment only grants visibility, discussion, Drive access, and `IN_PROGRESS` progress updates. It never grants workflow-transition authority.
 - Reviewers and overseers receive contextual visibility and discussion access according to route policy.
 
 ## Workflow integrity
@@ -86,9 +87,15 @@ The shared domain package defines separate ordered workflows for internal and ve
 
 ## Evidence model
 
-Woko stores file metadata and work-order relationships in PostgreSQL while Google Drive stores file content. A service account manages the project Shared Drive area. User-selected files may be moved into the Shared Drive; when ownership or Workspace policy prevents that, the UI can request permission to create a project copy.
+Attachments carry an action context (`INITIAL`, `PROGRESS_UPDATE`, `VENDOR_PROPOSAL`, `INTERNAL_PROCUREMENT`, or `COMPLETION`) and lifecycle state. Business actions reference their attachment IDs so files appear with the timeline event they support; the detail evidence card is read-only.
+
+Woko stores file metadata and work-order relationships in PostgreSQL while Google Drive stores file content. A service account manages the project Shared Drive area. User-selected files may be moved into the Shared Drive; when ownership or Workspace policy prevents that, the UI requests permission to create a project copy. Work-order folder reader permissions are synchronized for the creator and active participants, with per-user status persisted in `work_order_drive_permissions`.
 
 The API limits evidence uploads/selections by evidence type, file count, size, MIME type, and extension. Current maximum file size is 15 MiB per file.
+
+## Internal procurement
+
+Each internal work order has one current procurement state record. PICs/managers can require and submit a proposal through the external Finance process; managers record the communicated decision. Unresolved procurement blocks submission to review unless a manager stores an explicit override reason in the timeline and immutable audit history.
 
 ## Notifications and background jobs
 

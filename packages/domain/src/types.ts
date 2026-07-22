@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const roles = ['ADMINISTRATOR', 'FACILITIES_MANAGER', 'PERSON_IN_CHARGE', 'OVERSEER'] as const;
+export const roles = ['ADMINISTRATOR', 'FACILITIES_MANAGER', 'PERSON_IN_CHARGE', 'WORKER', 'OVERSEER'] as const;
 export type Role = (typeof roles)[number];
 
 export const workTypes = ['INTERNAL', 'VENDOR'] as const;
@@ -26,6 +26,7 @@ export const proposalSubmissionSchema = z.object({
   proposalValidityDate: z.string().date().optional(),
   expectedWorkDuration: z.string().trim().max(300).optional(),
   proposalNotes: z.string().trim().max(2000).optional(),
+  attachmentIds: z.array(z.string().uuid()).max(20).default([]),
   sourceDriveFileId: z.string().trim().min(3).max(300).optional(),
   allowCopyFallback: z.boolean().default(false),
   expectedVersion: z.number().int().positive(),
@@ -102,6 +103,53 @@ export type ChangeConditionInput = z.infer<typeof changeConditionSchema>;
 export const evidenceTypes = ['INITIAL', 'PROGRESS', 'PROPOSAL', 'COMPLETION'] as const;
 export type EvidenceType = (typeof evidenceTypes)[number];
 
+export const attachmentSources = ['UPLOAD', 'DRIVE_MOVE', 'DRIVE_COPY', 'DRIVE_EXPORT'] as const;
+export type AttachmentSource = (typeof attachmentSources)[number];
+
+export const attachmentContexts = ['INITIAL', 'PROGRESS_UPDATE', 'VENDOR_PROPOSAL', 'INTERNAL_PROCUREMENT', 'COMPLETION'] as const;
+export type AttachmentContext = (typeof attachmentContexts)[number];
+
+export const internalProcurementStatuses = ['NOT_REQUIRED', 'PROPOSAL_REQUIRED', 'SUBMITTED', 'APPROVED', 'REJECTED', 'REVISION_REQUIRED'] as const;
+export type InternalProcurementStatus = (typeof internalProcurementStatuses)[number];
+
+const expectedVersionsSchema = z.object({
+  expectedVersion: z.number().int().positive(),
+  expectedProcurementVersion: z.number().int().positive(),
+});
+
+export const requireProcurementSchema = expectedVersionsSchema.extend({
+  requirementNote: z.string().trim().min(3).max(2000),
+});
+
+export const updateProcurementSchema = expectedVersionsSchema.extend({
+  requirementNote: z.string().trim().min(3).max(2000),
+});
+
+export const submitProcurementSchema = expectedVersionsSchema.extend({
+  attachmentIds: z.array(z.string().uuid()).min(1).max(20),
+  confirmation: z.literal(true),
+  note: z.string().trim().max(2000).optional(),
+});
+
+export const decideProcurementSchema = expectedVersionsSchema.extend({
+  decision: z.enum(['APPROVED', 'REJECTED', 'REVISION_REQUIRED']),
+  decisionNote: z.string().trim().min(3).max(2000),
+});
+
+export const clearProcurementSchema = expectedVersionsSchema.extend({
+  reason: z.string().trim().min(3).max(2000),
+});
+
+export const attachmentDraftSchema = z.object({
+  context: z.enum(attachmentContexts),
+  expectedVersion: z.number().int().positive(),
+});
+
+export const driveAttachmentDraftSchema = attachmentDraftSchema.extend({
+  sourceDriveFileId: z.string().trim().min(3).max(300),
+  allowCopyFallback: z.boolean().default(false),
+});
+
 export const evidenceRules = {
   maxFileSizeBytes: 15 * 1024 * 1024,
   maxFilesPerType: 20,
@@ -128,6 +176,7 @@ export const linkDriveEvidenceSchema = z.object({
 
 export const transferDriveEvidenceSchema = z.object({
   evidenceType: z.enum(evidenceTypes),
+  attachmentContext: z.enum(attachmentContexts).optional(),
   sourceDriveFileId: z.string().trim().min(3).max(300),
   allowCopyFallback: z.boolean().default(false),
   expectedVersion: z.number().int().positive(),
@@ -176,6 +225,7 @@ export const createWorkOrderSchema = z.object({
   roomOrArea: z.string().trim().max(500).optional(),
   floor: z.string().trim().max(80).optional(),
   assigneeIds: z.array(z.string().uuid()).min(1).max(20),
+  workerIds: z.array(z.string().uuid()).max(50).default([]),
   reviewerId: z.string().uuid().optional(),
   overseerIds: z.array(z.string().uuid()).max(50).default([]),
   workType: z.enum(workTypes),
@@ -192,15 +242,24 @@ export const createWorkOrderSchema = z.object({
   if (new Set(value.assigneeIds).size !== value.assigneeIds.length) {
     context.addIssue({ code: 'custom', path: ['assigneeIds'], message: 'Each person in charge may only be selected once.' });
   }
+  if (new Set(value.workerIds).size !== value.workerIds.length) {
+    context.addIssue({ code: 'custom', path: ['workerIds'], message: 'Each worker may only be selected once.' });
+  }
   if (new Set(value.overseerIds).size !== value.overseerIds.length) {
     context.addIssue({ code: 'custom', path: ['overseerIds'], message: 'Each overseer may only be selected once.' });
+  }
+  if (value.workType === 'VENDOR' && value.workerIds.length) {
+    context.addIssue({ code: 'custom', path: ['workerIds'], message: 'Vendor work orders cannot have workers.' });
   }
   if (value.reviewerId && value.assigneeIds.includes(value.reviewerId)) {
     context.addIssue({ code: 'custom', path: ['reviewerId'], message: 'Reviewer must be different from every person in charge.' });
   }
-  const involved = new Set([...value.assigneeIds, ...(value.reviewerId ? [value.reviewerId] : [])]);
-  if (value.overseerIds.some((id) => involved.has(id))) {
-    context.addIssue({ code: 'custom', path: ['overseerIds'], message: 'Overseers must be different from the PIC and reviewer.' });
+  const core = new Set([...value.assigneeIds, ...value.workerIds, ...(value.reviewerId ? [value.reviewerId] : [])]);
+  if (core.size !== value.assigneeIds.length + value.workerIds.length + (value.reviewerId ? 1 : 0)) {
+    context.addIssue({ code: 'custom', path: ['workerIds'], message: 'A person cannot hold multiple responsibilities on the same work order.' });
+  }
+  if (value.overseerIds.some((id) => core.has(id))) {
+    context.addIssue({ code: 'custom', path: ['overseerIds'], message: 'Overseers must be different from the PIC, workers, and reviewer.' });
   }
 });
 

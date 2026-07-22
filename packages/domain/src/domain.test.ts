@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { getDeadlineGroup, isOverdue } from './deadlines.js';
 import { formatWorkOrderNumber } from './work-order-number.js';
-import { proposalDecisionTargets, validateTransition } from './workflow.js';
-import { changeConditionSchema, changeDueDateSchema, createWorkOrderSchema, proposalDecisionSchema, proposalSubmissionSchema, vendorSearchSchema } from './types.js';
+import { canCreateWorkOrder, canTransitionProcurement, canWorkerRecordProgress, proposalDecisionTargets, validateTransition } from './workflow.js';
+import { changeConditionSchema, changeDueDateSchema, createWorkOrderSchema, proposalDecisionSchema, proposalSubmissionSchema, roles, vendorSearchSchema } from './types.js';
 
 describe('workflow transitions', () => {
   it('allows a person in charge to move one internal stage forward', () => {
@@ -33,6 +33,16 @@ describe('workflow transitions', () => {
     expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['FACILITIES_MANAGER'] }).code).toBe('COMPLETION_EVIDENCE_REQUIRED');
     expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['FACILITIES_MANAGER'], hasCompletionEvidence: true }).allowed).toBe(true);
     expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['FACILITIES_MANAGER'], completionEvidenceWaiverReason: 'Camera was unavailable after an emergency repair.' }).allowed).toBe(true);
+  });
+
+  it('does not grant workflow transitions to workers', () => {
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['WORKER'], completionSummary: 'Finished.' }).code).toBe('FORBIDDEN');
+  });
+
+  it('blocks unresolved procurement and requires a manager override reason', () => {
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['PERSON_IN_CHARGE'], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED' }).code).toBe('PROCUREMENT_UNRESOLVED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['FACILITIES_MANAGER'], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED' }).code).toBe('PROCUREMENT_OVERRIDE_REASON_REQUIRED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['FACILITIES_MANAGER'], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED', procurementOverrideReason: 'Emergency safety work cannot wait for Finance.' }).allowed).toBe(true);
   });
 });
 
@@ -108,6 +118,26 @@ describe('work-order number', () => {
   });
 });
 
+describe('v0.6 authorization policies', () => {
+  it('includes the worker role and permits PIC creation', () => {
+    expect(roles).toContain('WORKER');
+    expect(canCreateWorkOrder(['PERSON_IN_CHARGE'])).toBe(true);
+    expect(canCreateWorkOrder(['WORKER'])).toBe(false);
+  });
+
+  it('allows worker progress only for assigned active internal work in progress', () => {
+    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(true);
+    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'VENDOR', stage: 'IN_PROGRESS' })).toBe(false);
+    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: false, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(false);
+  });
+
+  it('validates procurement transitions', () => {
+    expect(canTransitionProcurement('NOT_REQUIRED', 'PROPOSAL_REQUIRED')).toBe(true);
+    expect(canTransitionProcurement('SUBMITTED', 'APPROVED')).toBe(true);
+    expect(canTransitionProcurement('APPROVED', 'SUBMITTED')).toBe(false);
+  });
+});
+
 describe('work-order creation', () => {
   const valid = {
     title: 'Repair classroom doors',
@@ -118,6 +148,7 @@ describe('work-order creation', () => {
     locationOptionId: '50000000-0000-4000-8000-000000000001',
     roomOrArea: 'Classrooms 2A-2D',
     assigneeIds: ['30000000-0000-4000-8000-000000000002'],
+    workerIds: [],
     overseerIds: [],
     workType: 'INTERNAL',
     priority: 'HIGH',
@@ -143,5 +174,11 @@ describe('work-order creation', () => {
   it('rejects a reviewer who is also a PIC', () => {
     const result = createWorkOrderSchema.safeParse({ ...valid, reviewerId: valid.assigneeIds[0] });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects workers on vendor work and duplicate responsibilities', () => {
+    const workerId = '30000000-0000-4000-8000-000000000003';
+    expect(createWorkOrderSchema.safeParse({ ...valid, workType: 'VENDOR', workerIds: [workerId] }).success).toBe(false);
+    expect(createWorkOrderSchema.safeParse({ ...valid, workerIds: valid.assigneeIds }).success).toBe(false);
   });
 });

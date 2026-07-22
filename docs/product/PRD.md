@@ -1,7 +1,7 @@
 # Woko product requirements document
 
 **Product:** Woko  
-**Release:** v0.1.0  
+**Release:** v0.6.0
 **Status:** Release-ready for controlled internal production use  
 **Primary organization:** Millennia World School
 
@@ -48,7 +48,8 @@ Woko centralizes these answers while retaining Google Workspace as the organizat
 | --- | --- |
 | Administrator | Manage access, organization settings, locations, and all operational work |
 | Facilities Manager | Plan work, assign participants, approve vendor proposals, review completion, and monitor operations |
-| Person in Charge (PIC) | Execute assigned work, post progress, add evidence, flag risk/blockers, and advance permitted stages |
+| Person in Charge (PIC) | Create work orders, execute assigned work, post progress, manage internal procurement submissions, flag risk/blockers, and advance permitted stages |
+| Worker | Assist a PIC on internal work, post progress evidence while work is in progress, and participate in discussion without transition or completion authority |
 | Overseer | Follow relevant work and participate in progress discussions without owning execution or approval |
 
 A person may hold multiple roles. Access remains restricted to active internal users authenticated through the configured Google Workspace domain.
@@ -97,7 +98,7 @@ Vendor discovery, proposal submission, and proposal decisions use structured act
 
 ### 7.2 Work-order management
 
-- Create internal or vendor work orders with title, description, category, location, assignees, reviewer, overseers, priority, due date, execution constraints, and plan summary.
+- Allow Administrators, Facilities Managers, and PICs to create internal or vendor work orders with title, description, category, location, PICs, internal workers, reviewer, overseers, priority, due date, execution constraints, and plan summary.
 - Generate human-readable work-order numbers.
 - Present work grouped by deadline, including overdue and archived work.
 - Search work orders and provide “all work” and “my work” views.
@@ -111,12 +112,16 @@ Vendor discovery, proposal submission, and proposal decisions use structured act
 - Require structured explanations for risk, blockers, and resolution.
 - Support vendor search, proposal submission, approval, rejection, and revision requests.
 - Support completion review and manager approval.
+- Track internal procurement proposal submission to the external Finance process and the communicated Finance decision.
+- Block internal completion submission while procurement is unresolved unless a manager records an explicit override reason.
 - Prevent stale concurrent updates through expected-version checks.
 
 ### 7.4 Evidence and collaboration
 
 - Store evidence metadata in Woko and files in Google Drive.
-- Support initial, progress, proposal, and completion evidence.
+- Support initial, progress, vendor proposal, internal procurement, and completion evidence through action-specific attachment contexts.
+- Offer both local upload and Google Drive selection for action-specific attachment inputs.
+- Keep the work-order evidence card read-only; files are attached through the business action they support.
 - Allow users to select permitted Drive files through Google Picker.
 - Move files into the project Shared Drive when policy allows, with a user-approved copy fallback.
 - Show progress updates, attached evidence, and participant discussions in the work-order timeline.

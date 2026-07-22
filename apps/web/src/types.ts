@@ -1,4 +1,4 @@
-import type { EvidenceType, Priority, Role, WorkflowStage, WorkType } from '@woko/domain';
+import type { AttachmentContext, EvidenceType, InternalProcurementStatus, Priority, Role, WorkflowStage, WorkType } from '@woko/domain';
 
 export interface CurrentUser {
   id: string;
@@ -82,9 +82,11 @@ export interface WorkOrder {
   assignee_name: string;
   assignee_email: string;
   assignees: Array<{ id: string; full_name: string; email: string }>;
+  workers: Array<{ id: string; full_name: string; email: string }>;
   reviewer_id: string | null;
   reviewer_name: string | null;
   overseers: Array<{ id: string; full_name: string; email: string }>;
+  procurement: { status: InternalProcurementStatus; requirement_note: string | null; submitted_by_name: string | null; submitted_at: string | null; decided_by_name: string | null; decided_at: string | null; decision_note: string | null; version: number } | null;
   drive_folder_url: string | null;
   drive_provisioning_status: 'PROVISIONING' | 'COMPLETE' | 'FAILED';
   drive_provisioning_error: string | null;
@@ -95,7 +97,7 @@ export interface WorkOrder {
   deadlineGroup: string;
   updates?: Array<{ id: string; update_type: string; previous_stage: string | null; new_stage: string | null; note: string; structured_data: Record<string, unknown>; author: string; created_at: string; comments: Array<{ id: string; body: string; author_id: string; author: string; created_at: string }> }>;
   audits?: Array<{ id: string; event_type: string; previous_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; reason: string | null; author: string | null; created_at: string }>;
-  attachments?: Array<{ id: string; evidence_type: EvidenceType; source_type: 'UPLOAD' | 'DRIVE_LINK' | 'DRIVE_COPY' | 'DRIVE_MOVE'; file_name: string; original_file_name: string | null; mime_type: string; file_size: number | null; drive_url: string; uploaded_by: string; created_at: string }>;
+  attachments?: Array<{ id: string; evidence_type: EvidenceType; attachment_context: AttachmentContext; source_type: 'UPLOAD' | 'DRIVE_LINK' | 'DRIVE_COPY' | 'DRIVE_MOVE'; file_name: string; original_file_name: string | null; mime_type: string; file_size: number | null; drive_url: string; uploaded_by: string; created_at: string }>;
 }
 
 export interface ProposalApprovalItem {
@@ -151,7 +153,22 @@ export interface CompletionReviewItem {
   }>;
 }
 
+export interface InternalProcurementReviewItem {
+  id: string;
+  work_order_number: string;
+  title: string;
+  priority: Priority;
+  due_date: string;
+  version: number;
+  procurement_version: number;
+  requirement_note: string;
+  submitted_at: string;
+  submitted_by_name: string;
+  proposal_documents: Array<{ id: string; file_name: string; mime_type: string; drive_url: string; uploaded_by: string }>;
+}
+
 export interface ApprovalQueue {
   proposalApprovals: ProposalApprovalItem[];
   completionReviews: CompletionReviewItem[];
+  internalProcurementReviews: InternalProcurementReviewItem[];
 }
