@@ -81,11 +81,12 @@ export interface WorkOrder {
   assignee_id: string;
   assignee_name: string;
   assignee_email: string;
-  assignees: Array<{ id: string; full_name: string; email: string }>;
-  workers: Array<{ id: string; full_name: string; email: string }>;
+  assignees: Array<{ id: string; full_name: string; email: string; profile_photo_url: string | null }>;
+  workers: Array<{ id: string; full_name: string; email: string; profile_photo_url: string | null }>;
   reviewer_id: string | null;
   reviewer_name: string | null;
-  overseers: Array<{ id: string; full_name: string; email: string }>;
+  reviewer_photo_url: string | null;
+  overseers: Array<{ id: string; full_name: string; email: string; profile_photo_url: string | null }>;
   procurement: { status: InternalProcurementStatus; requirement_note: string | null; submitted_by_name: string | null; submitted_at: string | null; decided_by_name: string | null; decided_at: string | null; decision_note: string | null; version: number } | null;
   drive_folder_url: string | null;
   drive_provisioning_status: 'PROVISIONING' | 'COMPLETE' | 'FAILED';

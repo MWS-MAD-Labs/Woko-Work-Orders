@@ -78,9 +78,10 @@ interface WorkOrderRow {
   assignee_email: string;
   reviewer_id: string | null;
   reviewer_name: string | null;
-  assignees: Array<{ id: string; full_name: string; email: string }>;
-  workers: Array<{ id: string; full_name: string; email: string }>;
-  overseers: Array<{ id: string; full_name: string; email: string }>;
+  reviewer_photo_url: string | null;
+  assignees: Array<{ id: string; full_name: string; email: string; profile_photo_url: string | null }>;
+  workers: Array<{ id: string; full_name: string; email: string; profile_photo_url: string | null }>;
+  overseers: Array<{ id: string; full_name: string; email: string; profile_photo_url: string | null }>;
   procurement: { status: InternalProcurementStatus; requirement_note: string | null; submitted_by_name: string | null; submitted_at: string | null; decided_by_name: string | null; decided_at: string | null; decision_note: string | null; version: number } | null;
   drive_folder_url: string | null;
   drive_provisioning_status: 'PROVISIONING' | 'COMPLETE' | 'FAILED';
@@ -227,7 +228,7 @@ const selectWorkOrders = sql`
     wo.due_date::text, wo.planned_start_date::text, wo.room_or_area, wo.floor,
     b.name as building, c.name as campus,
     a.id as assignee_id, a.full_name as assignee_name, a.email::text as assignee_email,
-    r.id as reviewer_id, r.full_name as reviewer_name,
+    r.id as reviewer_id, r.full_name as reviewer_name, r.profile_photo_url as reviewer_photo_url,
     coalesce(assignees.items, '[]'::json) as assignees,
     coalesce(workers.items, '[]'::json) as workers,
     coalesce(overseers.items, '[]'::json) as overseers,
@@ -246,17 +247,17 @@ const selectWorkOrders = sql`
   join users a on a.id = wo.primary_assignee_id
   left join users r on r.id = wo.reviewer_id
   left join lateral (
-    select json_agg(json_build_object('id', u.id, 'full_name', u.full_name, 'email', u.email::text) order by (u.id = wo.primary_assignee_id) desc, u.full_name) as items
+    select json_agg(json_build_object('id', u.id, 'full_name', u.full_name, 'email', u.email::text, 'profile_photo_url', u.profile_photo_url) order by (u.id = wo.primary_assignee_id) desc, u.full_name) as items
     from work_order_assignees wa join users u on u.id = wa.user_id
     where wa.work_order_id = wo.id
   ) assignees on true
   left join lateral (
-    select json_agg(json_build_object('id', u.id, 'full_name', u.full_name, 'email', u.email::text) order by u.full_name) as items
+    select json_agg(json_build_object('id', u.id, 'full_name', u.full_name, 'email', u.email::text, 'profile_photo_url', u.profile_photo_url) order by u.full_name) as items
     from work_order_workers wow join users u on u.id = wow.user_id
     where wow.work_order_id = wo.id
   ) workers on true
   left join lateral (
-    select json_agg(json_build_object('id', u.id, 'full_name', u.full_name, 'email', u.email::text) order by u.full_name) as items
+    select json_agg(json_build_object('id', u.id, 'full_name', u.full_name, 'email', u.email::text, 'profile_photo_url', u.profile_photo_url) order by u.full_name) as items
     from work_order_overseers wov join users u on u.id = wov.user_id
     where wov.work_order_id = wo.id
   ) overseers on true

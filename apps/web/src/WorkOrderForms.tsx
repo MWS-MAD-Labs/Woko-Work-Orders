@@ -467,9 +467,9 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
   </section>;
 }
 
-export function WorkflowActionForm({ order, currentUser, onClose, onChanged, initialAction = 'forward' }: WorkflowFormProps) {
+export function WorkflowActionForm({ order, currentUser, onClose, onChanged, initialAction }: WorkflowFormProps) {
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
-  const [action, setAction] = useState<'forward' | 'reject' | 'reopen'>(initialAction);
+  const [action, setAction] = useState<'forward' | 'reject' | 'reopen'>(initialAction ?? (order.status === 'COMPLETED' ? 'reopen' : 'forward'));
   const isAssignedWorker = currentUser.roles.includes('WORKER') && order.workers.some((person) => person.id === currentUser.id);
   const [progressMode, setProgressMode] = useState<'mid' | 'complete'>('mid');
   const [note, setNote] = useState('');

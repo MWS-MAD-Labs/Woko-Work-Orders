@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, ExternalLink, FileText, Filter, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Search, Settings, ShieldAlert, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Search, Settings, ShieldAlert, UserCheck, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
@@ -21,10 +21,25 @@ function BrandLogo({ variant = 'wordmark' }: { variant?: 'wordmark' | 'icon' }) 
   return <img className={`brand-logo brand-logo-${variant}`} src={src} alt="" aria-hidden="true" />;
 }
 
-function Avatar({ name, photoUrl }: { name: string; photoUrl?: string }) {
+function Avatar({ name, photoUrl, title = name }: { name: string; photoUrl?: string | null; title?: string }) {
   const [imageFailed, setImageFailed] = useState(false);
   const initials = name.split(' ').map((part) => part[0]).slice(0, 2).join('');
-  return <span className={`avatar${photoUrl && !imageFailed ? ' has-photo' : ''}`} aria-label={name} title={name}>{photoUrl && !imageFailed ? <img src={photoUrl} alt="" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} /> : initials}</span>;
+  return <span className={`avatar${photoUrl && !imageFailed ? ' has-photo' : ''}`} aria-label={title} title={title}>{photoUrl && !imageFailed ? <img src={photoUrl} alt="" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} /> : initials}</span>;
+}
+
+function CardParticipants({ order, locale }: { order: Order; locale: Locale }) {
+  const labels = locale === 'id' ? { pic: 'PIC', worker: 'Pekerja', reviewer: 'Peninjau', overseer: 'Pengawas' } : { pic: 'PIC', worker: 'Worker', reviewer: 'Reviewer', overseer: 'Overseer' };
+  const roles = [
+    { key: 'pic', label: labels.pic, icon: <UserCheck />, people: order.assignees },
+    { key: 'worker', label: labels.worker, icon: <HardHat />, people: order.workers },
+    { key: 'reviewer', label: labels.reviewer, icon: <ClipboardCheck />, people: order.reviewer_id && order.reviewer_name ? [{ id: order.reviewer_id, full_name: order.reviewer_name, profile_photo_url: order.reviewer_photo_url }] : [] },
+    { key: 'overseer', label: labels.overseer, icon: <Eye />, people: order.overseers },
+  ].filter((role) => role.people.length > 0);
+  return <span className="card-participants" aria-label={roles.flatMap((role) => role.people.map((person) => `${person.full_name}, ${role.label}`)).join('; ')}>{roles.map((role) => <span className="card-participant-role" key={role.key} title={role.label}><span className="card-role-icon" aria-hidden="true">{role.icon}</span><span className="card-role-avatars" style={{ '--role-count': role.people.length } as React.CSSProperties}>{role.people.map((person) => <Avatar key={person.id} name={person.full_name} photoUrl={person.profile_photo_url} title={`${person.full_name} · ${role.label}`} />)}</span></span>)}</span>;
+}
+
+function ParticipantRole({ icon, label, people, emptyLabel = '—' }: { icon: React.ReactNode; label: string; people: Array<{ id: string; full_name: string; profile_photo_url?: string | null }>; emptyLabel?: string }) {
+  return <div className="participant-role"><span className="participant-role-label">{icon}{label}</span>{people.length ? <div className="participant-list">{people.map((person) => <span key={person.id}><Avatar name={person.full_name} photoUrl={person.profile_photo_url} /> <strong>{person.full_name}</strong></span>)}</div> : <strong>{emptyLabel}</strong>}</div>;
 }
 
 function StatusPill({ children, tone = 'neutral' }: { children: React.ReactNode; tone?: string }) {
@@ -51,7 +66,7 @@ function WorkOrderCard({ order, locale, onOpen }: { order: Order; locale: Locale
           {order.workflow_stage === 'APPROVAL' && <StatusPill tone="gold"><ClipboardCheck size={13} /> {t('approvalNeeded')}</StatusPill>}
           {order.workflow_stage === 'REVIEW' && <StatusPill tone="navy"><ClipboardCheck size={13} /> {t('finalCheck')}</StatusPill>}
         </span>
-        <span className="card-footer"><span><Avatar name={order.assignee_name} /> <span className="sr-only">{order.assignee_name}</span></span><span>{format(new Date(`${order.due_date}T00:00:00`), 'd MMM', { locale: dateLocale })}</span></span>
+        <span className="card-footer"><CardParticipants order={order} locale={locale} /><span className="card-due-date"><Clock3 size={13} /> {format(new Date(`${order.due_date}T00:00:00`), 'd MMM yyyy', { locale: dateLocale })}</span></span>
       </span>
     </button>
   );
@@ -59,6 +74,10 @@ function WorkOrderCard({ order, locale, onOpen }: { order: Order; locale: Locale
 
 function LoginScreen({ error }: { error?: string }) {
   return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">Work Order</span><h1>Sign in to Woko</h1><p>Use your registered <strong>@millennia21.id</strong> Google Workspace account.</p>{error && <p className="form-error">Sign-in failed: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> Continue with Google</a></section></main>;
+}
+
+function StartupErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">Work Order</span><h1>Woko could not load</h1><p>Your sign-in session may still be valid, but the application API returned an error.</p><p className="form-error">{message}</p><button className="primary-button" onClick={onRetry}>Try again</button></section></main>;
 }
 
 function ProgressDiscussion({ orderId, update, locale, canComment, onChanged }: { orderId: string; update: NonNullable<WorkOrder['updates']>[number]; locale: Locale; canComment: boolean; onChanged: () => Promise<void> }) {
@@ -113,10 +132,10 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
         <section className="participants-section">
           <header><div><h3>{t('peopleInvolved')}</h3><p>{canManageParticipants ? t('editParticipants') : t('participantManagerOnly')}</p></div>{canManageParticipants && <button className="secondary-button" onClick={() => setAction('participants')}>{t('managePeople')}</button>}</header>
           <div className="participant-role-grid">
-            <div><span>{t('pic')}</span><div className="participant-list">{order.assignees.map((person) => <span key={person.id}><Avatar name={person.full_name} /> {person.full_name}</span>)}</div></div>
-            {order.work_type === 'INTERNAL' && <div><span>Workers</span><strong>{order.workers.length ? order.workers.map((person) => person.full_name).join(', ') : '—'}</strong></div>}
-            <div><span>{t('reviewer')}</span><strong>{order.reviewer_name ?? t('defaultManager')}</strong></div>
-            <div><span>{t('overseers')}</span><strong>{order.overseers.length ? order.overseers.map((person) => person.full_name).join(', ') : '—'}</strong></div>
+            <ParticipantRole icon={<UserCheck />} label={t('pic')} people={order.assignees} />
+            {order.work_type === 'INTERNAL' && <ParticipantRole icon={<HardHat />} label={locale === 'id' ? 'Pekerja' : 'Workers'} people={order.workers} />}
+            <ParticipantRole icon={<ClipboardCheck />} label={t('reviewer')} people={order.reviewer_id && order.reviewer_name ? [{ id: order.reviewer_id, full_name: order.reviewer_name, profile_photo_url: order.reviewer_photo_url }] : []} emptyLabel={t('defaultManager')} />
+            <ParticipantRole icon={<Eye />} label={t('overseers')} people={order.overseers} />
           </div>
         </section>
         <dl className="detail-grid">
@@ -150,7 +169,8 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
 export default function App() {
   const [locale, setLocale] = useState<Locale>(() => (localStorage.getItem('woko-locale') as Locale) || 'id');
   const [orders, setOrders] = useState<Order[]>([]);
-  const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated'>('loading');
+  const [authState, setAuthState] = useState<'loading' | 'authenticated' | 'unauthenticated' | 'error'>('loading');
+  const [startupError, setStartupError] = useState('');
   const [query, setQuery] = useState('');
   const [workView, setWorkView] = useState<'all' | 'mine'>('all');
   const [selected, setSelected] = useState<Order | null>(null);
@@ -193,7 +213,10 @@ export default function App() {
           try { setSelected(await api<Order>(`/work-orders/${workOrderId}`)); } catch { /* Keep the work-order list available when a deep link is stale. */ }
         }
       })
-      .catch((caught) => { if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated'); else setAuthState('unauthenticated'); });
+      .catch((caught) => {
+        if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+        else { setStartupError(caught instanceof Error ? caught.message : 'The application could not be loaded.'); setAuthState('error'); }
+      });
   }, []);
 
   const openOrder = async (order: Order) => {
@@ -213,6 +236,7 @@ export default function App() {
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => undefined); setCurrentUser(null); setAuthState('unauthenticated'); };
   const loginError = new URLSearchParams(window.location.search).get('error') ?? undefined;
   if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>Checking your session…</p></section></main>;
+  if (authState === 'error') return <StartupErrorScreen message={startupError} onRetry={() => window.location.reload()} />;
   if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} />;
 
   const visibleOrders = workView === 'mine'
