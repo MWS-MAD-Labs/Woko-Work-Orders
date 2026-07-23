@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate } from './auth.js';
+import { authenticate, requireManager } from './auth.js';
 import { sql } from './database/client.js';
 
 const reportQuerySchema = z.object({
@@ -107,7 +107,7 @@ export function aggregateReport(rows: ReportRow[], academicYears: AcademicYear[]
 export async function reportRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
 
-  app.get('/reports/work-orders', async (request) => {
+  app.get('/reports/work-orders', { preHandler: requireManager }, async (request) => {
     const query = reportQuerySchema.parse(request.query);
     const [rows, academicYears, users, buildings, categories] = await Promise.all([
       sql<ReportRow[]>`

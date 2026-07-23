@@ -2,7 +2,7 @@ export type Locale = 'id' | 'en';
 
 const translations = {
   id: {
-    productName: 'Woko', appSubtitle: 'Work Order', allWork: 'Semua Pekerjaan', myWork: 'Pekerjaan Saya', approvals: 'Persetujuan',
+    productName: 'Woko', appSubtitle: 'Work Order', workOrders: 'Pekerjaan', allWork: 'Semua', myWork: 'Keterlibatan Saya', approvals: 'Persetujuan',
     notifications: 'Notifikasi', profile: 'Profil', overview: 'Ringkasan hari ini', sessionExpires: 'Sesi berakhir', active: 'Aktif', overdue: 'Terlambat',
     blocked: 'Terhambat', review: 'Menunggu ulasan', search: 'Cari nomor, judul, lokasi...', filter: 'Filter', create: 'Buat Pekerjaan',
     OVERDUE: 'Terlambat', THIS_WEEK: 'Jatuh Tempo Minggu Ini', THIS_MONTH: 'Jatuh Tempo Bulan Ini', NEXT_MONTH: 'Bulan Depan',
@@ -27,7 +27,7 @@ const translations = {
     titleDescriptionMinimum: 'Masukkan judul dan deskripsi minimal 10 karakter.', workOrderCreateFailed: 'Pekerjaan tidak dapat dibuat.',
   },
   en: {
-    productName: 'Woko', appSubtitle: 'Work Order', allWork: 'All Work Orders', myWork: 'My Work', approvals: 'Approvals', notifications: 'Notifications',
+    productName: 'Woko', appSubtitle: 'Work Order', workOrders: 'Work Orders', allWork: 'All', myWork: 'My involvement', approvals: 'Approvals', notifications: 'Notifications',
     profile: 'Profile', overview: 'Today at a glance', sessionExpires: 'Session expires', active: 'Active', overdue: 'Overdue', blocked: 'Blocked', review: 'Awaiting review',
     search: 'Search number, title, location...', filter: 'Filter', create: 'New Work', OVERDUE: 'Overdue', THIS_WEEK: 'Due This Week',
     THIS_MONTH: 'Due This Month', NEXT_MONTH: 'Due Next Month', THIS_SEMESTER: 'Due This Semester', THIS_ACADEMIC_YEAR: 'Due This Academic Year',

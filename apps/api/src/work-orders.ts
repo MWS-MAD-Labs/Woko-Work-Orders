@@ -96,6 +96,10 @@ function isManager(roles: readonly Role[]): boolean {
   return roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
 }
 
+export function resolveWorkOrderScope(roles: readonly Role[], requestedScope: 'all' | 'mine'): 'all' | 'mine' {
+  return isManager(roles) ? requestedScope : 'mine';
+}
+
 export function canDecideProposal(approverId: string, picIds: readonly string[]): boolean {
   return !picIds.includes(approverId);
 }
@@ -391,10 +395,13 @@ export async function workOrderRoutes(app: FastifyInstance) {
 
   app.get('/work-orders', async (request) => {
     const query = z.object({ scope: z.enum(['all', 'mine']).default('all'), status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional() }).parse(request.query);
-    const rows = query.scope === 'mine'
+    const scope = resolveWorkOrderScope(request.currentUser.roles, query.scope);
+    const rows = scope === 'mine'
       ? await sql<WorkOrderRow[]>`${selectWorkOrders} where (
           exists (select 1 from work_order_assignees mine where mine.work_order_id = wo.id and mine.user_id = ${request.currentUser.id})
           or exists (select 1 from work_order_workers mine_worker where mine_worker.work_order_id = wo.id and mine_worker.user_id = ${request.currentUser.id})
+          or wo.reviewer_id = ${request.currentUser.id}
+          or exists (select 1 from work_order_overseers mine_overseer where mine_overseer.work_order_id = wo.id and mine_overseer.user_id = ${request.currentUser.id})
         ) ${query.status ? sql`and wo.status = ${query.status}` : sql``} order by wo.due_date, wo.updated_at`
       : await sql<WorkOrderRow[]>`${selectWorkOrders} ${query.status ? sql`where wo.status = ${query.status}` : sql``} order by wo.due_date, wo.updated_at`;
     const periods = await sql<Array<{ type: string; end_date: string }>>`select type, end_date::text from academic_periods where active = true`;
@@ -407,7 +414,14 @@ export async function workOrderRoutes(app: FastifyInstance) {
 
   app.get('/work-orders/:id', async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const rows = await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id}`;
+    const rows = isManager(request.currentUser.roles)
+      ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id}`
+      : await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and (
+          exists (select 1 from work_order_assignees visible_pic where visible_pic.work_order_id = wo.id and visible_pic.user_id = ${request.currentUser.id})
+          or exists (select 1 from work_order_workers visible_worker where visible_worker.work_order_id = wo.id and visible_worker.user_id = ${request.currentUser.id})
+          or wo.reviewer_id = ${request.currentUser.id}
+          or exists (select 1 from work_order_overseers visible_overseer where visible_overseer.work_order_id = wo.id and visible_overseer.user_id = ${request.currentUser.id})
+        )`;
     if (!rows[0]) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
     const [updates, audits, attachments, periods] = await Promise.all([
       sql`

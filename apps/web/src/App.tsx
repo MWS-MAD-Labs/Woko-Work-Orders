@@ -239,11 +239,12 @@ export default function App() {
   if (authState === 'error') return <StartupErrorScreen message={startupError} onRetry={() => window.location.reload()} />;
   if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} />;
 
-  const visibleOrders = workView === 'mine'
+  const managerAccess = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const visibleOrders = managerAccess && workView === 'mine'
     ? orders.filter((order) => order.assignee_id === currentUser.id || order.assignees?.some((person) => person.id === currentUser.id) || order.workers?.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id || order.overseers?.some((person) => person.id === currentUser.id))
     : orders;
   const filtered = visibleOrders.filter((order) => `${order.work_order_number} ${order.title} ${order.building} ${order.room_or_area}`.toLowerCase().includes(deferredQuery));
-  const canCreate = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER' || role === 'PERSON_IN_CHARGE');
+  const canCreate = managerAccess || currentUser.roles.includes('PERSON_IN_CHARGE');
   const counts = {
     active: filtered.filter((order) => order.status === 'ACTIVE').length,
     overdue: filtered.filter((order) => order.deadlineGroup === 'OVERDUE').length,
@@ -254,14 +255,14 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a>
-      <nav aria-label="Primary"><button className={`nav-item nav-button${workView === 'all' ? ' active' : ''}`} onClick={() => setWorkView('all')}><BriefcaseBusiness /> {t('allWork')}</button><button className={`nav-item nav-button${workView === 'mine' ? ' active' : ''}`} onClick={() => setWorkView('mine')}><ClipboardCheck /> {t('myWork')}</button>{currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button><button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>{currentUser.roles.includes('ADMINISTRATOR') && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
+      <nav aria-label="Primary"><button className="nav-item nav-button active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /> {t('workOrders')}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{currentUser.roles.includes('ADMINISTRATOR') && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
       <div className="sidebar-footer"><button className="quiet-language-button" onClick={changeLocale} title={t('language')}><Languages /> {locale === 'id' ? 'English' : 'Bahasa Indonesia'}</button><div className="sidebar-user"><Avatar name={currentUser.fullName} photoUrl={currentUser.profilePhotoUrl} /><strong>{currentUser.fullName}</strong></div></div>
     </aside>
 
     <main id="top">
       <header className="mobile-header"><button className="icon-button mobile-language-button" aria-label={t('language')} onClick={changeLocale}><Languages /></button><a className="brand compact" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a><button className="icon-button notification-button" aria-label={t('notifications')} onClick={() => setShowNotifications(true)}><Bell />{unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button></header>
-      <div className="page-content" key={workView}>
-        <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{workView === 'mine' ? t('myWork') : t('allWork')}</h1><p>{t('overview')}</p></div><div className="header-actions">{canCreate && <button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button>}</div></div>
+      <div className="page-content">
+        <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{t('workOrders')}</h1><p>{t('overview')}</p></div><div className="header-actions">{canCreate && <button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button>}</div></div>
 
         <section className="metric-grid" aria-label={t('overview')}>
           <article><span className="metric-icon navy"><BriefcaseBusiness /></span><span><strong>{counts.active}</strong><small>{t('active')}</small></span></article>
@@ -270,6 +271,7 @@ export default function App() {
           <article><span className="metric-icon sage"><ClipboardCheck /></span><span><strong>{counts.review}</strong><small>{t('review')}</small></span></article>
         </section>
 
+        {managerAccess && <div className="work-scope-control" aria-label="Work-order scope"><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}>{t('allWork')}</button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}>{t('myWork')}</button></div>}
         <div className="toolbar"><label className="search-field"><Search /><span className="sr-only">{t('search')}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label><button className="filter-button"><Filter /> <span>{t('filter')}</span></button></div>
 
         <div className="work-sections" id="work">
@@ -284,7 +286,7 @@ export default function App() {
     </main>
 
     {canCreate && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
-    <nav className="bottom-nav" aria-label="Mobile navigation"><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}><BriefcaseBusiness /><span>{t('allWork')}</span></button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}><ClipboardCheck /><span>{t('myWork')}</span></button><button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button><button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button></nav>
+    <nav className="bottom-nav" aria-label="Mobile navigation"><button className="active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} />}
     {showOrganizationSettings && currentUser.roles.includes('ADMINISTRATOR') && <OrganizationSettings onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
