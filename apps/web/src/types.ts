@@ -98,7 +98,7 @@ export interface WorkOrder {
   deadlineGroup: string;
   updates?: Array<{ id: string; update_type: string; previous_stage: string | null; new_stage: string | null; note: string; structured_data: Record<string, unknown>; author: string; created_at: string; comments: Array<{ id: string; body: string; author_id: string; author: string; created_at: string }> }>;
   audits?: Array<{ id: string; event_type: string; previous_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; reason: string | null; author: string | null; created_at: string }>;
-  attachments?: Array<{ id: string; evidence_type: EvidenceType; attachment_context: AttachmentContext; source_type: 'UPLOAD' | 'DRIVE_LINK' | 'DRIVE_COPY' | 'DRIVE_MOVE'; file_name: string; original_file_name: string | null; mime_type: string; file_size: number | null; drive_url: string; uploaded_by: string; created_at: string }>;
+  attachments?: Array<{ id: string; evidence_type: EvidenceType; attachment_context: AttachmentContext; source_type: 'UPLOAD' | 'DRIVE_LINK' | 'DRIVE_COPY' | 'DRIVE_MOVE' | 'DRIVE_SHORTCUT'; file_name: string; original_file_name: string | null; mime_type: string; file_size: number | null; drive_url: string; uploaded_by: string; created_at: string }>;
 }
 
 export interface ProposalApprovalItem {

@@ -3,7 +3,7 @@ import { canTransitionProcurement, canWorkerRecordProgress, changeConditionSchem
 import { z } from 'zod';
 import { authenticate, requireManager, requireWorkOrderCreator } from './auth.js';
 import { sql } from './database/client.js';
-import { createDriveFolderPermission, deleteDriveFile, deleteDriveFolderPermission, extractDriveFileId, linkExistingDriveFile, provisionWorkOrderFolder, rollbackUserDriveTransfer, transferUserDriveFile, uploadDriveFile, type DriveSubfolderMap } from './drive.js';
+import { createUserDriveShortcut, deleteDriveFile, extractDriveFileId, linkExistingDriveFile, provisionWorkOrderFolder, rollbackUserDriveShortcut, shareDriveFileWithEditors, uploadDriveFile, type DriveSubfolderMap } from './drive.js';
 import { isCompletionPhoto, prepareEvidenceUpload, validateLinkedDriveFile } from './evidence.js';
 
 const participantsSchema = z.object({
@@ -118,6 +118,34 @@ async function isAssignedWorker(workOrderId: string, userId: string): Promise<bo
   return rows.length > 0;
 }
 
+async function getWorkOrderParticipantEmails(workOrderId: string, additionalEmails: string[] = []): Promise<string[]> {
+  const rows = await sql<Array<{ email: string }>>`
+    select distinct u.email::text as email
+    from users u
+    where u.active = true and u.id in (
+      select created_by_id from work_orders where id = ${workOrderId}
+      union select user_id from work_order_assignees where work_order_id = ${workOrderId}
+      union select user_id from work_order_workers where work_order_id = ${workOrderId}
+      union select reviewer_id from work_orders where id = ${workOrderId} and reviewer_id is not null
+      union select user_id from work_order_overseers where work_order_id = ${workOrderId}
+    )
+  `;
+  return [...new Set([...rows.map((row) => row.email.toLowerCase()), ...additionalEmails.map((email) => email.toLowerCase())])];
+}
+
+async function shareWorkOrderAttachmentsWithEditors(workOrderId: string): Promise<void> {
+  const [participantEmails, attachments] = await Promise.all([
+    getWorkOrderParticipantEmails(workOrderId),
+    sql<Array<{ file_id: string }>>`
+      select distinct case when source_type = 'DRIVE_SHORTCUT' then linked_drive_file_id else drive_file_id end as file_id
+      from attachments
+      where work_order_id = ${workOrderId} and removed_at is null
+        and case when source_type = 'DRIVE_SHORTCUT' then linked_drive_file_id else drive_file_id end is not null
+    `,
+  ]);
+  for (const attachment of attachments) await shareDriveFileWithEditors(attachment.file_id, participantEmails);
+}
+
 function participantsHaveEligibleRoles(participants: Array<{ id: string; roles: Role[] }>, input: { assigneeIds: string[]; workerIds: string[]; reviewerId?: string | null; overseerIds: string[] }): boolean {
   const rolesByUser = new Map(participants.map((participant) => [participant.id, participant.roles]));
   const picsValid = input.assigneeIds.every((id) => rolesByUser.get(id)?.includes('PERSON_IN_CHARGE') === true);
@@ -143,55 +171,7 @@ function provisioningErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 2000) : 'Unknown Google Drive provisioning error.';
 }
 
-type DrivePermissionParticipant = { id: string; email: string };
-type ExistingDrivePermission = DrivePermissionParticipant & { permission_id: string | null; sync_status: string };
 
-export function diffDrivePermissionParticipants(desired: DrivePermissionParticipant[], existing: ExistingDrivePermission[]) {
-  const desiredById = new Map(desired.map((participant) => [participant.id, participant]));
-  const existingById = new Map(existing.map((permission) => [permission.id, permission]));
-  return {
-    grant: desired.filter((participant) => {
-      const permission = existingById.get(participant.id);
-      return !permission || permission.sync_status !== 'COMPLETE' || permission.email !== participant.email;
-    }),
-    revoke: existing.filter((permission) => !desiredById.has(permission.id) || desiredById.get(permission.id)?.email !== permission.email),
-  };
-}
-
-async function syncWorkOrderDrivePermissions(workOrderId: string): Promise<void> {
-  const workOrders = await sql<Array<{ drive_folder_id: string | null }>>`select drive_folder_id from work_orders where id = ${workOrderId}`;
-  const folderId = workOrders[0]?.drive_folder_id;
-  if (!folderId) return;
-  const [desired, existing] = await Promise.all([
-    sql<DrivePermissionParticipant[]>`
-      select distinct u.id, u.email::text from users u where u.active = true and u.id in (
-        select created_by_id from work_orders where id = ${workOrderId}
-        union select user_id from work_order_assignees where work_order_id = ${workOrderId}
-        union select user_id from work_order_workers where work_order_id = ${workOrderId}
-        union select reviewer_id from work_orders where id = ${workOrderId} and reviewer_id is not null
-        union select user_id from work_order_overseers where work_order_id = ${workOrderId}
-      )
-    `,
-    sql<ExistingDrivePermission[]>`select user_id as id, email::text, permission_id, sync_status from work_order_drive_permissions where work_order_id = ${workOrderId}`,
-  ]);
-  const changes = diffDrivePermissionParticipants(desired, existing);
-  for (const permission of changes.revoke) {
-    try {
-      if (permission.permission_id) await deleteDriveFolderPermission(folderId, permission.permission_id);
-      await sql`update work_order_drive_permissions set sync_status = 'REMOVED', permission_id = null, last_error = null, updated_at = now() where work_order_id = ${workOrderId} and user_id = ${permission.id}`;
-    } catch (error) {
-      await sql`update work_order_drive_permissions set sync_status = 'FAILED', last_error = ${provisioningErrorMessage(error)}, updated_at = now() where work_order_id = ${workOrderId} and user_id = ${permission.id}`;
-    }
-  }
-  for (const participant of changes.grant) {
-    try {
-      const permissionId = await createDriveFolderPermission(folderId, participant.email);
-      await sql`insert into work_order_drive_permissions (work_order_id, user_id, email, permission_id, sync_status, updated_at) values (${workOrderId}, ${participant.id}, ${participant.email}, ${permissionId}, 'COMPLETE', now()) on conflict (work_order_id, user_id) do update set email = excluded.email, permission_id = excluded.permission_id, sync_status = 'COMPLETE', last_error = null, updated_at = now()`;
-    } catch (error) {
-      await sql`insert into work_order_drive_permissions (work_order_id, user_id, email, sync_status, last_error, updated_at) values (${workOrderId}, ${participant.id}, ${participant.email}, 'FAILED', ${provisioningErrorMessage(error)}, now()) on conflict (work_order_id, user_id) do update set email = excluded.email, sync_status = 'FAILED', last_error = excluded.last_error, updated_at = now()`;
-    }
-  }
-}
 
 async function provisionAndRecord(workOrderId: string, number: string, title: string, actorId: string, correlationId: string) {
   try {
@@ -208,7 +188,6 @@ async function provisionAndRecord(workOrderId: string, number: string, title: st
         values (${workOrderId}, ${actorId}, 'DRIVE_FOLDER_PROVISIONED', ${transaction.json({ folderId: provisioned.folderId, subfolders: provisioned.subfolders })}, ${correlationId})
       `;
     });
-    await syncWorkOrderDrivePermissions(workOrderId);
     return { status: 'COMPLETE' as const, ...provisioned };
   } catch (error) {
     const message = provisioningErrorMessage(error);
@@ -676,6 +655,13 @@ export async function workOrderRoutes(app: FastifyInstance) {
       return reply.code(code === 'FILE_SIZE_NOT_ALLOWED' ? 413 : 422).send({ error: { code, message: 'The selected file type, extension, content, or size is not allowed.', requestId: request.id } });
     }
     const driveFile = await uploadDriveFile({ folderId, fileName: prepared.fileName, mimeType: prepared.mimeType, buffer: prepared.buffer });
+    try {
+      await shareDriveFileWithEditors(driveFile.id, await getWorkOrderParticipantEmails(id, [request.currentUser.email]));
+    } catch (error) {
+      await deleteDriveFile(driveFile.id).catch(() => undefined);
+      const code = error instanceof Error ? error.message : 'DRIVE_FILE_SHARE_FAILED';
+      return reply.code(422).send({ error: { code, message: 'The uploaded file could not be shared with everyone on this work card.', requestId: request.id } });
+    }
     const result = await sql.begin(async (transaction) => {
       const locked = await transaction<Array<{ version: number }>>`select version from work_orders where id = ${id} for update`;
       if (locked[0]?.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
@@ -719,11 +705,11 @@ export async function workOrderRoutes(app: FastifyInstance) {
 
     let transferred;
     try {
-      transferred = await transferUserDriveFile({ accessToken, expectedEmail: request.currentUser.email, sourceFileId: input.sourceDriveFileId, folderId, allowCopyFallback: input.allowCopyFallback });
+      const participantEmails = await getWorkOrderParticipantEmails(id, [request.currentUser.email]);
+      transferred = await createUserDriveShortcut({ accessToken, expectedEmail: request.currentUser.email, sourceFileId: input.sourceDriveFileId, folderId, participantEmails });
     } catch (error) {
       const code = error instanceof Error ? error.message : 'INVALID_DRIVE_FILE';
-      const needsCopyConfirmation = ['DRIVE_FILE_NOT_OWNED', 'DRIVE_MOVE_NOT_ALLOWED'].includes(code) || (!input.allowCopyFallback && !code.startsWith('GOOGLE_') && !code.includes('UNAVAILABLE') && !code.includes('FOLDER'));
-      return reply.code(needsCopyConfirmation ? 409 : 422).send({ error: { code: needsCopyConfirmation ? 'DRIVE_COPY_CONFIRMATION_REQUIRED' : code, message: needsCopyConfirmation ? 'This file cannot be moved. Confirm that Woko may create a project copy instead.' : 'The selected Drive file could not be transferred.', requestId: request.id } });
+      return reply.code(422).send({ error: { code, message: code === 'DRIVE_FILE_SHARE_FAILED' ? 'The selected file could not be shared with everyone on this work card.' : code === 'DRIVE_SHORTCUT_FAILED' ? 'The Woko Drive worker could not create a shortcut in the project folder.' : 'The selected Drive file could not be linked.', requestId: request.id } });
     }
     let result;
     try {
@@ -734,16 +720,16 @@ export async function workOrderRoutes(app: FastifyInstance) {
         if ((counts[0]?.count ?? 0) >= evidenceRules.maxFilesPerType) return { error: 'FILE_COUNT_LIMIT' } as const;
         const attachments = await transaction<Array<{ id: string }>>`
           insert into attachments (work_order_id, drive_file_id, linked_drive_file_id, drive_url, file_name, original_file_name, mime_type, file_size, drive_subfolder_type, evidence_type, source_type, uploaded_by, status, pending_action_token, attachment_context)
-          values (${id}, ${transferred.id}, ${transferred.sourceId}, ${transferred.webViewLink}, ${transferred.name}, ${transferred.name}, ${transferred.mimeType}, ${transferred.size}, ${input.evidenceType}, ${input.evidenceType}, ${transferred.mode === 'MOVED' ? 'DRIVE_MOVE' : 'DRIVE_COPY'}, ${request.currentUser.id}, 'PENDING', gen_random_uuid(), ${attachmentContext}) returning id
+          values (${id}, ${transferred.id}, ${transferred.sourceId}, ${transferred.webViewLink}, ${transferred.name}, ${transferred.name}, ${transferred.mimeType}, ${transferred.size}, ${input.evidenceType}, ${input.evidenceType}, 'DRIVE_SHORTCUT', ${request.currentUser.id}, 'PENDING', gen_random_uuid(), ${attachmentContext}) returning id
         `;
         return { id: attachments[0]!.id, version: input.expectedVersion, driveUrl: transferred.webViewLink, transferMode: transferred.mode } as const;
       });
     } catch (error) {
-      await rollbackUserDriveTransfer(accessToken, transferred, folderId).catch(() => undefined);
+      await rollbackUserDriveShortcut(accessToken, transferred).catch(() => undefined);
       throw error;
     }
     if ('error' in result) {
-      await rollbackUserDriveTransfer(accessToken, transferred, folderId).catch(() => undefined);
+      await rollbackUserDriveShortcut(accessToken, transferred).catch(() => undefined);
       return reply.code(result.error === 'VERSION_CONFLICT' ? 409 : 422).send({ error: { code: result.error, message: 'The evidence could not be recorded. Reload and try again.', requestId: request.id } });
     }
     return reply.code(201).send({ data: result });
@@ -770,6 +756,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     try {
       linked = await linkExistingDriveFile({ sourceFileId, folderId });
       validateLinkedDriveFile({ fileName: linked.name, mimeType: linked.mimeType, size: linked.size });
+      await shareDriveFileWithEditors(linked.id, await getWorkOrderParticipantEmails(id, [request.currentUser.email]));
     } catch (error) {
       if (linked?.id) await deleteDriveFile(linked.id).catch(() => undefined);
       return reply.code(422).send({ error: { code: 'INVALID_DRIVE_FILE', message: error instanceof Error ? error.message : 'The Drive file is not valid evidence.', requestId: request.id } });
@@ -952,7 +939,11 @@ export async function workOrderRoutes(app: FastifyInstance) {
       const message = result.error === 'PARTICIPANT_MANAGEMENT_FORBIDDEN' ? 'Only a current PIC, Reviewer, Administrator, or Facilities Manager can change the people involved.' : result.error === 'PARTICIPANT_ROLE_MISMATCH' ? 'PICs must have the PIC role, workers must have the Worker role, Reviewers must be managers, and Overseers must have the Overseer role.' : result.error === 'VENDOR_WORKERS_NOT_ALLOWED' ? 'Vendor work orders cannot have workers.' : result.error === 'DUPLICATE_RESPONSIBILITY' ? 'A person cannot hold multiple responsibilities.' : 'The project participants could not be changed.';
       return reply.code(status).send({ error: { code: result.error, message, requestId: request.id } });
     }
-    await syncWorkOrderDrivePermissions(id);
+    try {
+      await shareWorkOrderAttachmentsWithEditors(id);
+    } catch (error) {
+      request.log.error({ error, workOrderId: id }, 'Failed to share existing attachments with updated work-card participants');
+    }
     return { data: result };
   });
 
@@ -1094,7 +1085,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (current.work_type !== 'VENDOR' || current.status !== 'ACTIVE' || !['FINDING_VENDOR', 'PROPOSAL'].includes(current.workflow_stage)) return reply.code(422).send({ error: { code: 'INVALID_VENDOR_STAGE', message: 'The proposal cannot be recorded at this stage.', requestId: request.id } });
     if (!isManager(request.currentUser.roles) && !(await isWorkOrderPic(id, request.currentUser.id))) return reply.code(403).send({ error: { code: 'NOT_ASSIGNED', message: 'Only a PIC or Facilities Manager can record the proposal.', requestId: request.id } });
 
-    let transferred: Awaited<ReturnType<typeof transferUserDriveFile>> | undefined;
+    let transferred: Awaited<ReturnType<typeof createUserDriveShortcut>> | undefined;
     let proposalFolderId: string | undefined;
     let accessToken: string | undefined;
     if (input.sourceDriveFileId) {
@@ -1102,11 +1093,11 @@ export async function workOrderRoutes(app: FastifyInstance) {
       accessToken = z.string().min(20).parse(request.headers['x-google-drive-token']);
       if (current.drive_provisioning_status !== 'COMPLETE' || !proposalFolderId) return reply.code(422).send({ error: { code: 'DRIVE_NOT_READY', message: 'The proposal folder is not ready.', requestId: request.id } });
       try {
-        transferred = await transferUserDriveFile({ accessToken, expectedEmail: request.currentUser.email, sourceFileId: input.sourceDriveFileId, folderId: proposalFolderId, allowCopyFallback: input.allowCopyFallback });
+        const participantEmails = await getWorkOrderParticipantEmails(id, [request.currentUser.email]);
+        transferred = await createUserDriveShortcut({ accessToken, expectedEmail: request.currentUser.email, sourceFileId: input.sourceDriveFileId, folderId: proposalFolderId, participantEmails });
       } catch (error) {
         const code = error instanceof Error ? error.message : 'INVALID_DRIVE_FILE';
-        const needsCopyConfirmation = ['DRIVE_FILE_NOT_OWNED', 'DRIVE_MOVE_NOT_ALLOWED'].includes(code) || (!input.allowCopyFallback && !code.startsWith('GOOGLE_') && !code.includes('UNAVAILABLE') && !code.includes('FOLDER'));
-        return reply.code(needsCopyConfirmation ? 409 : 422).send({ error: { code: needsCopyConfirmation ? 'DRIVE_COPY_CONFIRMATION_REQUIRED' : code, message: needsCopyConfirmation ? 'This proposal cannot be moved. Confirm that Woko may create a project copy instead.' : 'The selected proposal file could not be transferred.', requestId: request.id } });
+        return reply.code(422).send({ error: { code, message: code === 'DRIVE_FILE_SHARE_FAILED' ? 'The proposal file could not be shared with everyone on this work card.' : code === 'DRIVE_SHORTCUT_FAILED' ? 'The Woko Drive worker could not create a proposal shortcut.' : 'The selected proposal file could not be linked.', requestId: request.id } });
       }
     }
 
@@ -1128,7 +1119,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
         if ((counts[0]?.count ?? 0) >= evidenceRules.maxFilesPerType) return { error: 'FILE_COUNT_LIMIT' } as const;
         const attachments = await transaction<Array<{ id: string }>>`
           insert into attachments (work_order_id, drive_file_id, linked_drive_file_id, drive_url, file_name, original_file_name, mime_type, file_size, drive_subfolder_type, evidence_type, source_type, uploaded_by, status, attachment_context, attached_at)
-          values (${id}, ${transferred.id}, ${transferred.sourceId}, ${transferred.webViewLink}, ${transferred.name}, ${transferred.name}, ${transferred.mimeType}, ${transferred.size}, 'PROPOSAL', 'PROPOSAL', ${transferred.mode === 'MOVED' ? 'DRIVE_MOVE' : 'DRIVE_COPY'}, ${request.currentUser.id}, 'ATTACHED', 'VENDOR_PROPOSAL', now()) returning id
+          values (${id}, ${transferred.id}, ${transferred.sourceId}, ${transferred.webViewLink}, ${transferred.name}, ${transferred.name}, ${transferred.mimeType}, ${transferred.size}, 'PROPOSAL', 'PROPOSAL', 'DRIVE_SHORTCUT', ${request.currentUser.id}, 'ATTACHED', 'VENDOR_PROPOSAL', now()) returning id
         `;
         attachmentId = attachments[0]!.id;
       }
@@ -1153,7 +1144,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       return { stage: 'PROPOSAL', version: workOrder.version + 1 } as const;
     });
     if ('error' in result) {
-      if (transferred && accessToken && proposalFolderId) await rollbackUserDriveTransfer(accessToken, transferred, proposalFolderId).catch(() => undefined);
+      if (transferred && accessToken) await rollbackUserDriveShortcut(accessToken, transferred).catch(() => undefined);
       const status = result.error === 'NOT_FOUND' ? 404 : result.error === 'VERSION_CONFLICT' ? 409 : 422;
       return reply.code(status).send({ error: { code: result.error, message: 'The proposal could not be recorded.', requestId: request.id } });
     }

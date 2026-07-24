@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { addMonths, endOfMonth, endOfWeek, format } from 'date-fns';
 import { ArrowLeft, ArrowRight, Check, ExternalLink, FileUp, FolderSearch, RotateCcw, X } from 'lucide-react';
 import { blockerCategories, evidenceRules, evidenceTypes, priorities, proposalDecisions, type EvidenceType, type ProposalDecision, type TaskCondition, type WorkflowStage } from '@woko/domain';
-import { ApiError, api, createIdempotencyKey, uploadWithProgress } from './api';
+import { api, createIdempotencyKey, uploadWithProgress } from './api';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
 import { translator, type Locale } from './i18n';
 import { getProjectProgress } from './work-order-progress';
@@ -377,30 +377,27 @@ export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFo
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Upload failed.'); }
     finally { setSubmitting(false); }
   };
-  const transferFromDrive = async (selected: DriveBrowserItem, accessToken: string, allowCopyFallback = false) => {
-    if (!allowCopyFallback && !window.confirm(`Transfer “${selected.name}” into this project?\n\nThe file will leave its current My Drive folder and become owned by the project Shared Drive.`)) return;
+  const transferFromDrive = async (selected: DriveBrowserItem, accessToken: string) => {
+    if (!window.confirm(`Link “${selected.name}” to this project?\n\nWoko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file will not be moved or copied.`)) return;
     setShowDriveBrowser(false); setError(''); setSubmitting(true);
     try {
-      await api(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, sourceDriveFileId: selected.id, allowCopyFallback, expectedVersion: order.version }) });
+      await api(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, sourceDriveFileId: selected.id, expectedVersion: order.version }) });
       await onChanged();
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${selected.name}” cannot be moved. Create a copy in the project folder instead?\n\nThe original file will remain in its current Drive location.`)) {
-        await transferFromDrive(selected, accessToken, true);
-      } else setError(caught instanceof Error ? caught.message : 'Drive file could not be transferred.');
-    } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Drive file could not be linked.'); }
+    finally { setSubmitting(false); }
   };
   return <section className="evidence-section">
-    <div className="evidence-heading"><div><h3>File evidence</h3><p>Initial, progress, proposal, and completion records are stored in the work-order Drive folder.</p></div>{order.drive_folder_url && <a className="secondary-button" href={order.drive_folder_url} target="_blank" rel="noreferrer"><ExternalLink /> Open folder</a>}</div>
+    <div className="evidence-heading"><div><h3>File evidence</h3><p>Initial, progress, proposal, and completion records are stored by Woko in a private work-order Drive folder.</p></div></div>
     <div className={`drive-status drive-status-${order.drive_provisioning_status.toLowerCase()}`}><strong>Google Drive: {order.drive_provisioning_status}</strong>{order.drive_provisioning_error && <span>{order.drive_provisioning_error}</span>}{order.drive_provisioning_status === 'FAILED' && isManager && <button type="button" className="secondary-button" onClick={retry} disabled={submitting}><RotateCcw /> Retry</button>}</div>
     {canUpload && order.drive_provisioning_status === 'COMPLETE' && <div className="evidence-controls">
       <Field label="Evidence type"><select value={evidenceType} onChange={(event) => setEvidenceType(event.target.value as EvidenceType)}>{evidenceTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
       <div className="upload-row"><label className="file-picker"><FileUp /><span>{file?.name ?? 'Choose file'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="primary-button" onClick={upload} disabled={!file || submitting}>Upload</button></div>
       {submitting && progress > 0 && <div className="upload-progress" aria-label={`Upload ${progress}%`}><span style={{ width: `${progress}%` }} /></div>}
-      <button type="button" className="drive-browse-button" onClick={() => setShowDriveBrowser(true)} disabled={submitting}><FolderSearch /> Choose from Google Drive <small>Open the native Google Picker and transfer one of your files</small></button>
-      <small>Owned files are moved into the project Shared Drive. If Google does not allow a move, Woko will ask before creating a copy. Maximum {evidenceRules.maxFilesPerType} files per evidence type and {Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per uploaded file.</small>
+      <button type="button" className="drive-browse-button" onClick={() => setShowDriveBrowser(true)} disabled={submitting}><FolderSearch /> Choose from Google Drive <small>Share with the Woko Drive worker and create a private project shortcut</small></button>
+      <small>Your original file stays in place. Everyone on the work card receives edit access; the Drive worker maintains that editor list and stores a shortcut in the private project folder. Maximum {evidenceRules.maxFilesPerType} files per evidence type and {Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per uploaded file.</small>
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="evidence-list">{order.attachments?.length ? order.attachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><span><strong>{attachment.file_name}</strong><small>{attachment.evidence_type} · {attachment.source_type === 'UPLOAD' ? 'Uploaded' : attachment.source_type === 'DRIVE_MOVE' ? 'Transferred from My Drive' : 'Copied from Drive'} · {attachment.uploaded_by}</small></span><ExternalLink /></a>) : <p className="muted">No file evidence added yet.</p>}</div>
+    <div className="evidence-list">{order.attachments?.length ? order.attachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><span><strong>{attachment.file_name}</strong><small>{attachment.evidence_type} · {attachment.source_type === 'UPLOAD' ? 'Uploaded' : attachment.source_type === 'DRIVE_SHORTCUT' ? 'Drive shortcut' : attachment.source_type === 'DRIVE_MOVE' ? 'Transferred from My Drive' : 'Copied from Drive'} · {attachment.uploaded_by}</small></span><ExternalLink /></a>) : <p className="muted">No file evidence added yet.</p>}</div>
     {showDriveBrowser && <DriveBrowser onClose={() => setShowDriveBrowser(false)} onSelect={(selected, accessToken) => void transferFromDrive(selected, accessToken)} />}
   </section>;
 }
@@ -435,15 +432,13 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Proposal upload failed.'); }
     finally { setSubmitting(false); }
   };
-  const transferDrive = async (selected: DriveBrowserItem, accessToken: string, allowCopyFallback = false) => {
+  const transferDrive = async (selected: DriveBrowserItem, accessToken: string) => {
     setShowDriveBrowser(false); setSubmitting(true); setError('');
     try {
-      const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType: 'PROPOSAL', attachmentContext: 'INTERNAL_PROCUREMENT', sourceDriveFileId: selected.id, allowCopyFallback, expectedVersion: workVersion }) });
+      const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType: 'PROPOSAL', attachmentContext: 'INTERNAL_PROCUREMENT', sourceDriveFileId: selected.id, expectedVersion: workVersion }) });
       setAttachmentId(result.id); setWorkVersion(result.version);
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${selected.name}” cannot be moved. Create a project copy instead?`)) await transferDrive(selected, accessToken, true);
-      else setError(caught instanceof Error ? caught.message : 'Drive proposal transfer failed.');
-    } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Drive proposal could not be linked.'); }
+    finally { setSubmitting(false); }
   };
   const documents = order.attachments?.filter((item) => item.attachment_context === 'INTERNAL_PROCUREMENT') ?? [];
   return <section className="evidence-section procurement-section">
@@ -511,17 +506,15 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
     }
     setError(''); setProgressImage(file);
   };
-  const transferProgressDrive = async (selected: DriveBrowserItem, accessToken: string, allowCopyFallback = false) => {
+  const transferProgressDrive = async (selected: DriveBrowserItem, accessToken: string) => {
     setShowProgressDriveBrowser(false); setSubmitting(true); setError('');
     try {
       const context = isMidProgressUpdate ? 'PROGRESS_UPDATE' : 'COMPLETION';
       const evidenceType = isMidProgressUpdate ? 'PROGRESS' : 'COMPLETION';
-      const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, attachmentContext: context, sourceDriveFileId: selected.id, allowCopyFallback, expectedVersion: order.version }) });
+      const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, attachmentContext: context, sourceDriveFileId: selected.id, expectedVersion: order.version }) });
       setUploadedAttachmentId(result.id); setUploadedImageVersion(result.version); setUploadedAsCompletion(!isMidProgressUpdate);
-    } catch (caught) {
-      if (caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${selected.name}” cannot be moved. Create a project copy instead?`)) await transferProgressDrive(selected, accessToken, true);
-      else setError(caught instanceof Error ? caught.message : 'Drive attachment failed.');
-    } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Drive attachment could not be linked.'); }
+    finally { setSubmitting(false); }
   };
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(''); setSubmitting(true);
@@ -612,12 +605,7 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
           const uploaded = await uploadWithProgress<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/upload`, upload, () => undefined);
           expectedVersion = uploaded.version; attachmentIds = [uploaded.id];
         }
-        const recordProposal = (allowCopyFallback: boolean) => api(`/work-orders/${order.id}/proposal`, { method: 'POST', headers: proposalFile ? { 'X-Google-Drive-Token': proposalDriveToken } : undefined, body: JSON.stringify({ vendorName, quotedCost: parseIdrInput(quotedCost), proposalValidityDate: proposalValidityDate || undefined, expectedWorkDuration: expectedWorkDuration || undefined, proposalNotes: proposalNotes || undefined, attachmentIds, sourceDriveFileId: proposalFile?.id, allowCopyFallback, expectedVersion }) });
-        try { await recordProposal(false); }
-        catch (caught) {
-          if (proposalFile && caught instanceof ApiError && caught.code === 'DRIVE_COPY_CONFIRMATION_REQUIRED' && window.confirm(`“${proposalFile.name}” cannot be moved. Create a copy in the project folder instead?\n\nThe original file will remain in its current Drive location.`)) await recordProposal(true);
-          else throw caught;
-        }
+        await api(`/work-orders/${order.id}/proposal`, { method: 'POST', headers: proposalFile ? { 'X-Google-Drive-Token': proposalDriveToken } : undefined, body: JSON.stringify({ vendorName, quotedCost: parseIdrInput(quotedCost), proposalValidityDate: proposalValidityDate || undefined, expectedWorkDuration: expectedWorkDuration || undefined, proposalNotes: proposalNotes || undefined, attachmentIds, sourceDriveFileId: proposalFile?.id, expectedVersion }) });
       } else if (mode === 'submit') {
         await api(`/work-orders/${order.id}/proposal/submit`, { method: 'POST', body: JSON.stringify({ note: submissionNote, expectedVersion: order.version }) });
       }
@@ -635,13 +623,13 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
     {mode === 'proposal' && <div className="form-grid compact">
       <Field label="Vendor name" required><input value={vendorName} onChange={(event) => setVendorName(event.target.value)} required /></Field>
       <Field label="Quoted cost" required hint={parseIdrInput(quotedCost) ? formatIdrCurrency(parseIdrInput(quotedCost)) : 'Enter the total proposal value in IDR.'}><div className="currency-input"><span>Rp</span><input inputMode="numeric" value={quotedCost} onChange={(event) => setQuotedCost(formatIdrInput(event.target.value))} placeholder="0" required /></div></Field>
-      <div className="proposal-attachment"><span>Vendor proposal document <b>*</b></span><label className="file-picker"><FileUp /><span>{localProposalFile?.name ?? 'Upload from device'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => { setLocalProposalFile(event.target.files?.[0] ?? null); setProposalFile(null); }} /></label>{proposalFile ? <button type="button" className="selected-drive-file" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /><span><strong>{proposalFile.name}</strong><small>Will transfer into 03 Proposals when saved</small></span></button> : <button type="button" className="drive-browse-button" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /> Choose from Google Drive <small>Open the native Google Picker</small></button>}{hasProposalEvidence && !proposalFile && !localProposalFile && <small className="existing-evidence-note"><Check /> An existing proposal document is already attached.</small>}</div>
+      <div className="proposal-attachment"><span>Vendor proposal document <b>*</b></span><label className="file-picker"><FileUp /><span>{localProposalFile?.name ?? 'Upload from device'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => { setLocalProposalFile(event.target.files?.[0] ?? null); setProposalFile(null); }} /></label>{proposalFile ? <button type="button" className="selected-drive-file" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /><span><strong>{proposalFile.name}</strong><small>Will create a private shortcut in 03 Proposals when saved</small></span></button> : <button type="button" className="drive-browse-button" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /> Choose from Google Drive <small>Share with the Woko Drive worker and create a shortcut</small></button>}{hasProposalEvidence && !proposalFile && !localProposalFile && <small className="existing-evidence-note"><Check /> An existing proposal document is already attached.</small>}</div>
       <details className="optional-fields"><summary>Add optional proposal details</summary><div className="form-grid compact"><Field label="Proposal validity date"><input type="date" value={proposalValidityDate} onChange={(event) => setProposalValidityDate(event.target.value)} /></Field><Field label="Expected work duration"><input value={expectedWorkDuration} onChange={(event) => setExpectedWorkDuration(event.target.value)} placeholder="Example: 5 working days" /></Field><Field label="Proposal notes"><textarea rows={3} value={proposalNotes} onChange={(event) => setProposalNotes(event.target.value)} /></Field></div></details>
     </div>}
     {mode === 'submit' && <div className="form-grid compact"><Field label="Submission note" required><textarea rows={4} value={submissionNote} onChange={(event) => setSubmissionNote(event.target.value)} required /></Field>{!hasProposalEvidence && <p className="form-error">A proposal document is required before submission.</p>}</div>}
     {error && <p className="form-error" role="alert">{error}</p>}
     <footer><button className="primary-button" disabled={submitting || (mode === 'proposal' && !hasProposalEvidence && !proposalFile && !localProposalFile) || (mode === 'submit' && !hasProposalEvidence)}>{submitting ? 'Saving...' : mode === 'search' ? 'Save vendor search' : mode === 'proposal' ? 'Record proposal' : 'Submit for approval'}</button></footer>
-    {showProposalDriveBrowser && <DriveBrowser title="Choose vendor proposal" onClose={() => setShowProposalDriveBrowser(false)} onSelect={(selected, accessToken) => { if (window.confirm(`Use “${selected.name}” as the vendor proposal?\n\nWhen you save, Woko will transfer it from My Drive into the project Shared Drive.`)) { setProposalFile(selected); setProposalDriveToken(accessToken); } setShowProposalDriveBrowser(false); }} />}
+    {showProposalDriveBrowser && <DriveBrowser title="Choose vendor proposal" onClose={() => setShowProposalDriveBrowser(false)} onSelect={(selected, accessToken) => { if (window.confirm(`Use “${selected.name}” as the vendor proposal?\n\nWhen you save, Woko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file stays in place.`)) { setProposalFile(selected); setProposalDriveToken(accessToken); } setShowProposalDriveBrowser(false); }} />}
   </form>;
 }
 

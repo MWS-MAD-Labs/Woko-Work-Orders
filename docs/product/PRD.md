@@ -123,7 +123,7 @@ Vendor discovery, proposal submission, and proposal decisions use structured act
 - Offer both local upload and Google Drive selection for action-specific attachment inputs.
 - Keep the work-order evidence card read-only; files are attached through the business action they support.
 - Allow users to select permitted Drive files through Google Picker.
-- Move files into the project Shared Drive when policy allows, with a user-approved copy fallback.
+- Keep project Shared Drive folders private to the Drive worker; for user-selected files, grant every active work-card participant edit access, let the worker maintain that file-level editor list, and create a shortcut in the correct work-order subfolder without moving or copying the original.
 - Show progress updates, attached evidence, and participant discussions in the work-order timeline.
 - Retain immutable audit/event records for material actions.
 

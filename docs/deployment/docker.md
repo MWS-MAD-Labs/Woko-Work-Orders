@@ -145,10 +145,11 @@ On a new database with no internal users, the first verified identity from the a
    ```
 
 10. Set `WOKO_GOOGLE_CREDENTIALS_FILE`, `GOOGLE_SHARED_DRIVE_ID`, and `GOOGLE_WORK_ORDERS_ROOT_FOLDER_ID`.
-11. Verify the Shared Drive permits direct folder sharing to users in the configured Workspace domain. Woko grants work-order participants `reader` access on the work-order folder; Workspace policy may prohibit this and Woko cannot bypass that policy.
-12. Test with a participant who is not already a Shared Drive member. If direct folder sharing is prohibited, adopt an approved Workspace group or Shared Drive membership policy and document the broader access implications.
+11. Keep application users out of the Shared Drive. Only the dedicated Drive service account needs Shared Drive membership.
+12. Confirm Workspace policy allows a user to grant the service-account email `writer` access to a Picker-selected source file and allows that worker to grant participant `writer` permissions.
+13. Test the complete flow with a normal user: select a file, verify every active work-card participant receives edit access, and verify that the service account creates a shortcut in the private work-order subfolder.
 
-The service account uses the Drive scope to create folders, upload/copy files, and synchronize participant folder permissions. Keep the identity restricted to the Woko Shared Drive and do not reuse it for unrelated storage.
+The service account uses the Drive scope to create private work-order folders, upload local files, maintain file-level editor access, and create shortcuts to user-selected files. The original user file remains in place and must retain the worker account's writer permission while Woko manages participant access. Keep the service account restricted to the Woko Shared Drive and do not reuse it for unrelated storage.
 
 The Compose stack mounts the Drive credential at `/run/secrets/woko_google_credentials` and sets `GOOGLE_APPLICATION_CREDENTIALS` automatically.
 
@@ -399,9 +400,11 @@ Never delete or manually edit migration records merely to force an older API to 
 - Confirm Picker key origin/API restrictions.
 - Confirm Shared Drive and root folder IDs.
 - Confirm the service account is a Shared Drive member with adequate permission.
-- Check Workspace file ownership, direct folder-sharing, and Shared Drive membership policies.
-- Review `work_order_drive_permissions` for failed participant permission synchronization and its safe error summary.
-- Use the copy fallback only with user approval when moving is prohibited.
+- Confirm Workspace policy allows the user to grant the service account `writer` access to the selected source file.
+- Confirm the service account can grant every active work-card participant `writer` access to the source file.
+- Confirm the source file still grants the service account `writer` access; removing it prevents future participant sharing updates.
+- Confirm the service account can create shortcuts in the target work-order subfolder.
+- Application users should not be members of, or directly shared onto, the Woko Shared Drive.
 
 ### Gmail notifications fail
 

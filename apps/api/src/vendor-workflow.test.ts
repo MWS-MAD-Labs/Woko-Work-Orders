@@ -9,8 +9,8 @@ describe('vendor workflow API contracts', () => {
 
   it('validates required structured fields', () => {
     expect(vendorSearchSchema.safeParse({ vendorSearchNote: 'Contacted vendors.', contactedVendorName: 'PT Sejahtera', expectedVersion: 1 }).success).toBe(true);
-    expect(proposalSubmissionSchema.safeParse({ vendorName: 'PT Sejahtera', quotedCost: 125000000, sourceDriveFileId: 'drive-file-123', allowCopyFallback: false, expectedVersion: 2 }).success).toBe(true);
-    expect(transferDriveEvidenceSchema.parse({ evidenceType: 'PROPOSAL', sourceDriveFileId: 'drive-file-123', expectedVersion: 2 }).allowCopyFallback).toBe(false);
+    expect(proposalSubmissionSchema.safeParse({ vendorName: 'PT Sejahtera', quotedCost: 125000000, sourceDriveFileId: 'drive-file-123', expectedVersion: 2 }).success).toBe(true);
+    expect(transferDriveEvidenceSchema.safeParse({ evidenceType: 'PROPOSAL', sourceDriveFileId: 'drive-file-123', expectedVersion: 2 }).success).toBe(true);
     expect(proposalDecisionSchema.safeParse({ decision: 'APPROVED', decisionNote: 'Approved.', plannedStartDate: '2026-08-20', expectedVersion: 4 }).success).toBe(true);
   });
 });

@@ -28,7 +28,6 @@ export const proposalSubmissionSchema = z.object({
   proposalNotes: z.string().trim().max(2000).optional(),
   attachmentIds: z.array(z.string().uuid()).max(20).default([]),
   sourceDriveFileId: z.string().trim().min(3).max(300).optional(),
-  allowCopyFallback: z.boolean().default(false),
   expectedVersion: z.number().int().positive(),
 });
 export type ProposalSubmissionInput = z.infer<typeof proposalSubmissionSchema>;
@@ -103,7 +102,7 @@ export type ChangeConditionInput = z.infer<typeof changeConditionSchema>;
 export const evidenceTypes = ['INITIAL', 'PROGRESS', 'PROPOSAL', 'COMPLETION'] as const;
 export type EvidenceType = (typeof evidenceTypes)[number];
 
-export const attachmentSources = ['UPLOAD', 'DRIVE_MOVE', 'DRIVE_COPY', 'DRIVE_EXPORT'] as const;
+export const attachmentSources = ['UPLOAD', 'DRIVE_MOVE', 'DRIVE_COPY', 'DRIVE_EXPORT', 'DRIVE_SHORTCUT'] as const;
 export type AttachmentSource = (typeof attachmentSources)[number];
 
 export const attachmentContexts = ['INITIAL', 'PROGRESS_UPDATE', 'VENDOR_PROPOSAL', 'INTERNAL_PROCUREMENT', 'COMPLETION'] as const;
@@ -147,7 +146,6 @@ export const attachmentDraftSchema = z.object({
 
 export const driveAttachmentDraftSchema = attachmentDraftSchema.extend({
   sourceDriveFileId: z.string().trim().min(3).max(300),
-  allowCopyFallback: z.boolean().default(false),
 });
 
 export const evidenceRules = {
@@ -178,7 +176,6 @@ export const transferDriveEvidenceSchema = z.object({
   evidenceType: z.enum(evidenceTypes),
   attachmentContext: z.enum(attachmentContexts).optional(),
   sourceDriveFileId: z.string().trim().min(3).max(300),
-  allowCopyFallback: z.boolean().default(false),
   expectedVersion: z.number().int().positive(),
 });
 

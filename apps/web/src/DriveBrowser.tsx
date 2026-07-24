@@ -31,6 +31,35 @@ interface DriveBrowserProps {
 
 let scriptsPromise: Promise<void> | undefined;
 
+const driveTokenStoragePrefix = 'woko:drive-token:';
+type CachedDriveToken = { accessToken: string; expiresAt: number };
+
+function readCachedDriveToken(email: string): CachedDriveToken | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(`${driveTokenStoragePrefix}${email.toLowerCase()}`);
+    if (!raw) return undefined;
+    const cached = JSON.parse(raw) as CachedDriveToken;
+    if (!cached.accessToken || cached.expiresAt <= Date.now() + 60_000) {
+      window.sessionStorage.removeItem(`${driveTokenStoragePrefix}${email.toLowerCase()}`);
+      return undefined;
+    }
+    return cached;
+  } catch {
+    return undefined;
+  }
+}
+
+function cacheDriveToken(email: string, accessToken: string, expiresInSeconds: number): void {
+  try {
+    window.sessionStorage.setItem(`${driveTokenStoragePrefix}${email.toLowerCase()}`, JSON.stringify({
+      accessToken,
+      expiresAt: Date.now() + expiresInSeconds * 1000,
+    } satisfies CachedDriveToken));
+  } catch {
+    // Picker still works when browser storage is unavailable; it will request a token again next time.
+  }
+}
+
 function loadGoogleScripts(): Promise<void> {
   scriptsPromise ??= new Promise((resolve, reject) => {
     let pickerReady = Boolean(window.google?.picker);
@@ -132,12 +161,13 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
           scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
           login_hint: config.email,
           hd: config.email.split('@')[1],
-          callback: (response: { access_token?: string; error?: string }) => {
+          callback: (response: { access_token?: string; expires_in?: number; error?: string }) => {
             if (!active) return;
             if (response.error || !response.access_token) {
               setError(`Google Drive permission was not granted${response.error ? ` (${response.error})` : ''}.`);
               return;
             }
+            cacheDriveToken(config.email, response.access_token, response.expires_in ?? 3600);
             showPicker(response.access_token);
           },
           error_callback: (response: { type?: string }) => {
@@ -150,8 +180,14 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
             setError(message);
           },
         });
-        setStatus('Ready to open your Drive');
-        setReady(true);
+        const cachedToken = readCachedDriveToken(config.email);
+        if (cachedToken) {
+          setStatus('Opening Google Drive…');
+          showPicker(cachedToken.accessToken);
+        } else {
+          setStatus('Google Drive access required');
+          setReady(true);
+        }
       })
       .catch((caught) => active && setError(caught instanceof Error ? caught.message : 'Google Drive could not be opened.'));
     return () => { active = false; };
@@ -159,12 +195,12 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
 
   const authorize = () => {
     setError('');
-    setStatus('Waiting for Google authorization…');
-    tokenClientRef.current?.requestAccessToken({ prompt: 'consent', login_hint: configRef.current?.email });
+    setStatus('Connecting to Google Drive…');
+    tokenClientRef.current?.requestAccessToken({ login_hint: configRef.current?.email });
   };
 
   return <div className="drive-picker-launch" role="status">
-    {error ? <><p className="form-error">{error}</p><button type="button" className="secondary-button" onClick={onClose}>Close</button></> : ready ? <><FolderSearch /><strong>{status}</strong><button type="button" className="primary-button" onClick={authorize}>Continue to Google Drive</button><small>Google will open a secure authorization window, followed by the native Drive Picker.</small></> : <><LoaderCircle className="picker-spinner" /><strong>{status}</strong><small>Loading Google Identity Services and Picker…</small></>}
+    {error ? <><p className="form-error">{error}</p><button type="button" className="secondary-button" onClick={onClose}>Close</button></> : ready ? <><FolderSearch /><strong>{status}</strong><button type="button" className="primary-button" onClick={authorize}>Connect Google Drive</button><small>Google authorization is only requested when this browser tab does not have a valid Drive access token.</small></> : <><LoaderCircle className="picker-spinner" /><strong>{status}</strong><small>Loading Google Identity Services and Picker…</small></>}
     <a href="https://drive.google.com" target="_blank" rel="noreferrer"><ExternalLink /> Open Google Drive</a>
   </div>;
 }

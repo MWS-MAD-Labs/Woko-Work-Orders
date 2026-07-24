@@ -16,19 +16,28 @@ export type DriveSubfolderKey = keyof typeof driveSubfolders;
 export type DriveSubfolderMap = Record<DriveSubfolderKey, string>;
 
 let driveClient: drive_v3.Drive | undefined;
+let driveAuth: InstanceType<typeof google.auth.GoogleAuth> | undefined;
 
-function getDrive(): drive_v3.Drive {
+function getDriveAuth() {
   if (!config.GOOGLE_APPLICATION_CREDENTIALS) {
     throw new Error('GOOGLE_APPLICATION_CREDENTIALS is not configured.');
   }
-  driveClient ??= google.drive({
-    version: 'v3',
-    auth: new google.auth.GoogleAuth({
-      keyFile: config.GOOGLE_APPLICATION_CREDENTIALS,
-      scopes: ['https://www.googleapis.com/auth/drive'],
-    }),
+  driveAuth ??= new google.auth.GoogleAuth({
+    keyFile: config.GOOGLE_APPLICATION_CREDENTIALS,
+    scopes: ['https://www.googleapis.com/auth/drive'],
   });
+  return driveAuth;
+}
+
+function getDrive(): drive_v3.Drive {
+  driveClient ??= google.drive({ version: 'v3', auth: getDriveAuth() });
   return driveClient;
+}
+
+async function getDriveWorkerEmail(): Promise<string> {
+  const credentials = await getDriveAuth().getCredentials();
+  if (!credentials.client_email) throw new Error('DRIVE_WORKER_EMAIL_UNAVAILABLE');
+  return credentials.client_email;
 }
 
 function escapeDriveQuery(value: string): string {
@@ -134,15 +143,16 @@ export function extractDriveFileId(url: string): string | undefined {
   }
 }
 
-export interface UserDriveTransfer {
+export interface UserDriveShortcut {
   id: string;
   sourceId: string;
+  createdSourcePermissionIds: string[];
+  upgradedSourcePermissionIds: string[];
   name: string;
   mimeType: string;
   size: number | null;
   webViewLink: string;
-  mode: 'MOVED' | 'COPIED';
-  originalParents: string[];
+  mode: 'SHORTCUT';
 }
 
 function getUserDrive(accessToken: string) {
@@ -151,90 +161,140 @@ function getUserDrive(accessToken: string) {
   return { drive: google.drive({ version: 'v3', auth }), auth };
 }
 
-export async function transferUserDriveFile(input: { accessToken: string; expectedEmail: string; sourceFileId: string; folderId: string; allowCopyFallback: boolean }): Promise<UserDriveTransfer> {
+export async function createUserDriveShortcut(input: { accessToken: string; expectedEmail: string; sourceFileId: string; folderId: string; participantEmails: string[] }): Promise<UserDriveShortcut> {
   const { drive, auth } = getUserDrive(input.accessToken);
   let identity;
   try { identity = await google.oauth2({ version: 'v2', auth }).userinfo.get(); }
   catch { throw new Error('GOOGLE_DRIVE_AUTHORIZATION_FAILED'); }
   if (!identity.data.email || identity.data.email.toLowerCase() !== input.expectedEmail.toLowerCase()) throw new Error('GOOGLE_ACCOUNT_MISMATCH');
+
   let metadata;
   try {
     metadata = await drive.files.get({
       fileId: input.sourceFileId,
-      fields: 'id,name,mimeType,size,webViewLink,trashed,parents,ownedByMe,capabilities(canCopy,canEdit,canMoveItemIntoTeamDrive)',
+      fields: 'id,name,mimeType,size,trashed',
       supportsAllDrives: true,
     });
   } catch { throw new Error('DRIVE_FILE_UNAVAILABLE'); }
   if (metadata.data.trashed || !metadata.data.id || !metadata.data.name || !metadata.data.mimeType) throw new Error('DRIVE_FILE_UNAVAILABLE');
   if (metadata.data.mimeType === 'application/vnd.google-apps.folder') throw new Error('DRIVE_FOLDER_NOT_SUPPORTED');
   validateLinkedDriveFile({ fileName: metadata.data.name, mimeType: metadata.data.mimeType, size: metadata.data.size ? Number(metadata.data.size) : null });
-  const originalParents = metadata.data.parents ?? [];
 
-  if (metadata.data.ownedByMe && metadata.data.capabilities?.canMoveItemIntoTeamDrive !== false) {
-    try {
-      const moved = await drive.files.update({
+  const workerEmail = (await getDriveWorkerEmail()).toLowerCase();
+  const participantEmails = [...new Set(input.participantEmails.map((email) => email.toLowerCase()))]
+    .filter((email) => email !== input.expectedEmail.toLowerCase() && email !== workerEmail);
+  const createdSourcePermissionIds: string[] = [];
+  const upgradedSourcePermissionIds: string[] = [];
+  try {
+    const permissions = await drive.permissions.list({
+      fileId: metadata.data.id,
+      fields: 'permissions(id,type,emailAddress,role)',
+      supportsAllDrives: true,
+    });
+    const existingByEmail = new Map(permissions.data.permissions
+      ?.filter((permission) => permission.type === 'user' && permission.emailAddress)
+      .map((permission) => [permission.emailAddress!.toLowerCase(), permission]) ?? []);
+    const workerPermission = existingByEmail.get(workerEmail);
+    if (!workerPermission) {
+      const permission = await drive.permissions.create({
         fileId: metadata.data.id,
-        addParents: input.folderId,
-        removeParents: originalParents.join(','),
-        fields: 'id,name,mimeType,size,webViewLink',
         supportsAllDrives: true,
+        sendNotificationEmail: false,
+        requestBody: { type: 'user', role: 'writer', emailAddress: workerEmail },
+        fields: 'id',
       });
-      if (!moved.data.id) throw new Error('DRIVE_MOVE_FAILED');
-      return {
-        id: moved.data.id,
-        sourceId: metadata.data.id,
-        name: moved.data.name ?? metadata.data.name,
-        mimeType: moved.data.mimeType ?? metadata.data.mimeType,
-        size: moved.data.size ? Number(moved.data.size) : metadata.data.size ? Number(metadata.data.size) : null,
-        webViewLink: moved.data.webViewLink ?? `https://drive.google.com/open?id=${moved.data.id}`,
-        mode: 'MOVED',
-        originalParents,
-      };
-    } catch {
-      if (!input.allowCopyFallback) throw new Error('DRIVE_MOVE_NOT_ALLOWED');
+      if (permission.data.id) createdSourcePermissionIds.push(permission.data.id);
+    } else if (workerPermission.id && workerPermission.role === 'reader') {
+      await drive.permissions.update({ fileId: metadata.data.id, permissionId: workerPermission.id, supportsAllDrives: true, requestBody: { role: 'writer' } });
+      upgradedSourcePermissionIds.push(workerPermission.id);
     }
-  } else if (!input.allowCopyFallback) {
-    throw new Error(metadata.data.ownedByMe ? 'DRIVE_MOVE_NOT_ALLOWED' : 'DRIVE_FILE_NOT_OWNED');
+    for (const emailAddress of participantEmails) {
+      const existingPermission = existingByEmail.get(emailAddress);
+      if (existingPermission?.id && existingPermission.role === 'reader') {
+        await drive.permissions.update({ fileId: metadata.data.id, permissionId: existingPermission.id, supportsAllDrives: true, requestBody: { role: 'writer' } });
+        upgradedSourcePermissionIds.push(existingPermission.id);
+        continue;
+      }
+      if (existingPermission) continue;
+      const permission = await drive.permissions.create({
+        fileId: metadata.data.id,
+        supportsAllDrives: true,
+        sendNotificationEmail: false,
+        requestBody: { type: 'user', role: 'writer', emailAddress },
+        fields: 'id',
+      });
+      if (permission.data.id) createdSourcePermissionIds.push(permission.data.id);
+    }
+  } catch {
+    await Promise.all(createdSourcePermissionIds.map((permissionId) => drive.permissions.delete({ fileId: metadata.data.id!, permissionId, supportsAllDrives: true }).catch(() => undefined)));
+    await Promise.all(upgradedSourcePermissionIds.map((permissionId) => drive.permissions.update({ fileId: metadata.data.id!, permissionId, supportsAllDrives: true, requestBody: { role: 'reader' } }).catch(() => undefined)));
+    throw new Error('DRIVE_FILE_SHARE_FAILED');
   }
 
-  if (metadata.data.capabilities?.canCopy === false) throw new Error('DRIVE_COPY_NOT_ALLOWED');
-  const copied = await drive.files.copy({
-    fileId: metadata.data.id,
-    requestBody: { name: metadata.data.name, parents: [input.folderId] },
-    fields: 'id,name,mimeType,size,webViewLink',
-    supportsAllDrives: true,
-  });
-  if (!copied.data.id) throw new Error('DRIVE_COPY_FAILED');
-  return {
-    id: copied.data.id,
-    sourceId: metadata.data.id,
-    name: copied.data.name ?? metadata.data.name,
-    mimeType: copied.data.mimeType ?? metadata.data.mimeType,
-    size: copied.data.size ? Number(copied.data.size) : metadata.data.size ? Number(metadata.data.size) : null,
-    webViewLink: copied.data.webViewLink ?? `https://drive.google.com/open?id=${copied.data.id}`,
-    mode: 'COPIED',
-    originalParents,
-  };
+  try {
+    const shortcut = await getDrive().files.create({
+      requestBody: {
+        name: metadata.data.name,
+        mimeType: 'application/vnd.google-apps.shortcut',
+        parents: [input.folderId],
+        shortcutDetails: { targetId: metadata.data.id },
+      },
+      fields: 'id,name,webViewLink',
+      supportsAllDrives: true,
+    });
+    if (!shortcut.data.id) throw new Error('DRIVE_SHORTCUT_FAILED');
+    return {
+      id: shortcut.data.id,
+      sourceId: metadata.data.id,
+      createdSourcePermissionIds,
+      upgradedSourcePermissionIds,
+      name: shortcut.data.name ?? metadata.data.name,
+      mimeType: metadata.data.mimeType,
+      size: metadata.data.size ? Number(metadata.data.size) : null,
+      webViewLink: `https://drive.google.com/open?id=${metadata.data.id}`,
+      mode: 'SHORTCUT',
+    };
+  } catch {
+    await Promise.all(createdSourcePermissionIds.map((permissionId) => drive.permissions.delete({ fileId: metadata.data.id!, permissionId, supportsAllDrives: true }).catch(() => undefined)));
+    await Promise.all(upgradedSourcePermissionIds.map((permissionId) => drive.permissions.update({ fileId: metadata.data.id!, permissionId, supportsAllDrives: true, requestBody: { role: 'reader' } }).catch(() => undefined)));
+    throw new Error('DRIVE_SHORTCUT_FAILED');
+  }
 }
 
-
-export async function rollbackUserDriveTransfer(accessToken: string, transfer: UserDriveTransfer, projectFolderId: string): Promise<void> {
+export async function rollbackUserDriveShortcut(accessToken: string, shortcut: UserDriveShortcut): Promise<void> {
+  await deleteDriveFile(shortcut.id).catch(() => undefined);
+  if (!shortcut.createdSourcePermissionIds.length && !shortcut.upgradedSourcePermissionIds.length) return;
   const { drive } = getUserDrive(accessToken);
-  if (transfer.mode === 'COPIED') {
-    try {
-      await drive.files.delete({ fileId: transfer.id, supportsAllDrives: true });
-    } catch {
-      await drive.files.update({ fileId: transfer.id, supportsAllDrives: true, requestBody: { trashed: true }, fields: 'id,trashed' });
+  await Promise.all(shortcut.createdSourcePermissionIds.map((permissionId) => drive.permissions.delete({ fileId: shortcut.sourceId, permissionId, supportsAllDrives: true }).catch(() => undefined)));
+  await Promise.all(shortcut.upgradedSourcePermissionIds.map((permissionId) => drive.permissions.update({ fileId: shortcut.sourceId, permissionId, supportsAllDrives: true, requestBody: { role: 'reader' } }).catch(() => undefined)));
+}
+
+export async function shareDriveFileWithEditors(fileId: string, participantEmails: string[]): Promise<void> {
+  const drive = getDrive();
+  const editorEmails = [...new Set(participantEmails.map((email) => email.toLowerCase()))];
+  const permissions = await drive.permissions.list({ fileId, fields: 'permissions(id,type,emailAddress,role)', supportsAllDrives: true });
+  const existingByEmail = new Map(permissions.data.permissions
+    ?.filter((permission) => permission.type === 'user' && permission.emailAddress)
+    .map((permission) => [permission.emailAddress!.toLowerCase(), permission]) ?? []);
+  try {
+    for (const emailAddress of editorEmails) {
+      const existingPermission = existingByEmail.get(emailAddress);
+      if (existingPermission?.id && existingPermission.role === 'reader') {
+        await drive.permissions.update({ fileId, permissionId: existingPermission.id, supportsAllDrives: true, requestBody: { role: 'writer' } });
+        continue;
+      }
+      if (existingPermission) continue;
+      await drive.permissions.create({
+        fileId,
+        supportsAllDrives: true,
+        sendNotificationEmail: false,
+        requestBody: { type: 'user', role: 'writer', emailAddress },
+        fields: 'id',
+      });
     }
-    return;
+  } catch {
+    throw new Error('DRIVE_FILE_SHARE_FAILED');
   }
-  await drive.files.update({
-    fileId: transfer.id,
-    addParents: transfer.originalParents.length ? transfer.originalParents.join(',') : 'root',
-    removeParents: projectFolderId,
-    fields: 'id,parents',
-    supportsAllDrives: true,
-  });
 }
 
 export async function copyExistingDriveFile(input: { sourceFileId: string; folderId: string }): Promise<{ id: string; sourceId: string; name: string; mimeType: string; size: number | null; webViewLink: string }> {
