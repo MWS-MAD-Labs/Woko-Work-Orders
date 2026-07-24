@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useState } from 'react';
-import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Search, Settings, ShieldAlert, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Search, Settings, ShieldAlert, Trash2, UserCheck, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
@@ -97,10 +97,13 @@ function ProgressDiscussion({ orderId, update, locale, canComment, onChanged }: 
   return <div className="progress-discussion"><button type="button" className="comment-toggle" onClick={() => setOpen((value) => !value)}><MessageCircle /> {t('comment')} {comments.length > 0 && <span>{comments.length}</span>}</button>{open && <div className="comment-thread">{comments.length ? comments.map((comment) => <article key={comment.id}><strong>{comment.author}</strong><p>{comment.body}</p><small>{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: locale === 'id' ? id : enUS })}</small></article>) : <p className="muted">{t('noComments')}</p>}<form onSubmit={submit}><textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('writeComment')} maxLength={2000} required /><button className="secondary-button" disabled={submitting || !body.trim()}>{t('send')}</button></form>{error && <p className="form-error">{error}</p>}</div>}</div>;
 }
 
-function DetailDrawer({ order, locale, currentUser, references, onClose, onChanged }: { order: Order; locale: Locale; currentUser: CurrentUser; references: ReferenceData; onClose: () => void; onChanged: () => Promise<void> }) {
+function DetailDrawer({ order, locale, currentUser, references, onClose, onChanged, onDelete }: { order: Order; locale: Locale; currentUser: CurrentUser; references: ReferenceData; onClose: () => void; onChanged: () => Promise<void>; onDelete: (order: Order) => Promise<void> }) {
   const t = translator(locale);
   const dateLocale = locale === 'id' ? id : enUS;
   const [action, setAction] = useState<'workflow' | 'vendor' | 'proposal-decision' | 'condition' | 'due-date' | 'participants' | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const isPic = order.assignees.some((person) => person.id === currentUser.id);
   const isWorker = order.workers.some((person) => person.id === currentUser.id);
@@ -117,6 +120,13 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
   const progress = getProjectProgress(order, locale);
   const projectPhases = getProjectPhases(locale);
   const progressActionLabel = getProgressActionLabel(order, isManager);
+  const deleteWorkOrder = async () => {
+    setDeleting(true);
+    setDeleteError('');
+    try { await onDelete(order); }
+    catch (caught) { setDeleteError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Pekerjaan tidak dapat dihapus.' : 'The work order could not be deleted.')); }
+    finally { setDeleting(false); }
+  };
   return <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
     <section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" onMouseDown={(event) => event.stopPropagation()}>
       <header className="drawer-header"><div><span>{order.work_order_number}</span><h2 id="drawer-title">{order.title}</h2></div><button className="icon-button" onClick={onClose} aria-label={t('close')}><X /></button></header>
@@ -155,13 +165,14 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
         }) : <p className="muted">{t('noUpdates')}</p>}</section>
         {isManager && <details className="audit-details"><summary>Technical audit history ({audits?.length ?? 0})</summary>{audits?.length ? audits.map((audit: any) => <article className="timeline-item" key={audit.id}><span className="timeline-dot" /><div><strong>{String(audit.event_type).replaceAll('_', ' ')}</strong>{audit.reason && <p>{audit.reason}</p>}<small>{audit.author ?? 'System'} · {formatDistanceToNow(new Date(audit.created_at), { addSuffix: true, locale: dateLocale })}</small></div></article>) : <p className="muted">No audit events recorded.</p>}</details>}
       </div>
-      <footer className="drawer-actions">{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>Report issue</button>}{isManager && <button className="secondary-button" onClick={() => setAction('due-date')}>Change due date</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
+      <footer className="drawer-actions">{currentUser.roles.includes('ADMINISTRATOR') && <button className="secondary-button delete-work-order-button" onClick={() => { setDeleteError(''); setConfirmingDelete(true); }}><Trash2 /> {locale === 'id' ? 'Hapus pekerjaan' : 'Delete work order'}</button>}{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>Report issue</button>}{isManager && <button className="secondary-button" onClick={() => setAction('due-date')}>Change due date</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
       {action === 'workflow' && <WorkflowActionForm order={order as WorkOrder} currentUser={currentUser} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'vendor' && <VendorActionForm order={order} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'proposal-decision' && <ProposalDecisionForm order={order} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'condition' && <ConditionActionForm order={order as WorkOrder} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'due-date' && <DueDateActionForm order={order as WorkOrder} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'participants' && <ParticipantsActionForm order={order} references={references} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
+      {confirmingDelete && <section className="action-panel delete-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="delete-work-order-title"><header><div><span>{locale === 'id' ? 'Tindakan administrator' : 'Administrator action'}</span><h3 id="delete-work-order-title">{locale === 'id' ? 'Hapus pekerjaan ini?' : 'Delete this work order?'}</h3></div><button className="icon-button" onClick={() => setConfirmingDelete(false)} disabled={deleting} aria-label={t('close')}><X /></button></header><p>{locale === 'id' ? `${order.work_order_number} akan disembunyikan dari daftar, laporan, persetujuan, dan notifikasi. Riwayatnya tetap disimpan untuk audit.` : `${order.work_order_number} will be hidden from lists, reports, approvals, and notifications. Its history will remain stored for audit.`}</p>{deleteError && <p className="form-error" role="alert">{deleteError}</p>}<footer><button className="secondary-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>{locale === 'id' ? 'Batal' : 'Cancel'}</button><button className="primary-button destructive-button" onClick={() => void deleteWorkOrder()} disabled={deleting}><Trash2 /> {deleting ? (locale === 'id' ? 'Menghapus...' : 'Deleting...') : (locale === 'id' ? 'Ya, hapus pekerjaan' : 'Yes, delete work order')}</button></footer></section>}
     </section>
   </div>;
 }
@@ -223,6 +234,12 @@ export default function App() {
     setSelected(order);
 
     try { setSelected(await api<Order>(`/work-orders/${order.id}`)); } catch { /* Keep list data visible. */ }
+  };
+
+  const deleteOrder = async (order: Order) => {
+    await api(`/work-orders/${order.id}`, { method: 'DELETE' });
+    setOrders((current) => current.filter((item) => item.id !== order.id));
+    setSelected(null);
   };
 
   const changeLocale = async () => {
@@ -287,7 +304,7 @@ export default function App() {
 
     {canCreate && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
     <nav className="bottom-nav" aria-label="Mobile navigation"><button className="active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
-    {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} />}
+    {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
     {showOrganizationSettings && currentUser.roles.includes('ADMINISTRATOR') && <OrganizationSettings onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
     {showNotifications && <NotificationsView onClose={() => setShowNotifications(false)} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} />}

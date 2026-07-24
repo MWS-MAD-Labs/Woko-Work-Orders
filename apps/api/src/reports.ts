@@ -125,7 +125,7 @@ export async function reportRoutes(app: FastifyInstance) {
         join buildings b on b.id = wo.building_id
         join campuses c on c.id = wo.campus_id
         join users assignee on assignee.id = wo.primary_assignee_id
-        where true
+        where wo.removed_at is null
           ${query.from ? sql`and wo.due_date >= ${query.from}` : sql``}
           ${query.to ? sql`and wo.due_date <= ${query.to}` : sql``}
           ${query.locationId ? sql`and wo.building_id = ${query.locationId}` : sql``}
@@ -145,7 +145,7 @@ export async function reportRoutes(app: FastifyInstance) {
         from buildings b join campuses c on c.id = b.campus_id
         where b.active = true and c.active = true order by c.name, b.name
       `,
-      sql<Array<{ name: string }>>`select distinct category as name from work_orders order by category`,
+      sql<Array<{ name: string }>>`select distinct category as name from work_orders where removed_at is null order by category`,
     ]);
 
     return {

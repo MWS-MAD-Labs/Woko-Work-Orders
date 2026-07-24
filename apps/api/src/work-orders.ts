@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { canTransitionProcurement, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type Role, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
 import { z } from 'zod';
-import { authenticate, requireManager, requireWorkOrderCreator } from './auth.js';
+import { authenticate, requireAdministrator, requireManager, requireWorkOrderCreator } from './auth.js';
 import { sql } from './database/client.js';
 import { createUserDriveShortcut, deleteDriveFile, extractDriveFileId, linkExistingDriveFile, provisionWorkOrderFolder, rollbackUserDriveShortcut, shareDriveFileWithEditors, uploadDriveFile, type DriveSubfolderMap } from './drive.js';
 import { isCompletionPhoto, prepareEvidenceUpload, validateLinkedDriveFile } from './evidence.js';
@@ -251,6 +251,13 @@ const selectWorkOrders = sql`
 
 export async function workOrderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
+  app.addHook('preHandler', async (request, reply) => {
+    if (!request.routeOptions.url?.includes('/work-orders/:id') || request.method === 'DELETE') return;
+    const parsed = z.object({ id: z.string().uuid() }).safeParse(request.params);
+    if (!parsed.success) return;
+    const rows = await sql`select 1 from work_orders where id = ${parsed.data.id} and removed_at is null`;
+    if (!rows.length) await reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
+  });
 
   app.get('/me', async (request) => ({ data: request.currentUser }));
 
@@ -301,7 +308,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
           order by pu.created_at desc limit 1
         ) proposal on true
         join users submitter on submitter.id = proposal.created_by
-        where wo.work_type = 'VENDOR' and wo.workflow_stage = 'APPROVAL' and wo.status = 'ACTIVE'
+        where wo.work_type = 'VENDOR' and wo.workflow_stage = 'APPROVAL' and wo.status = 'ACTIVE' and wo.removed_at is null
         order by wo.priority, proposal.created_at
       `,
       sql`
@@ -349,7 +356,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
             or (decision.update_type = 'STAGE_TRANSITION' and decision.previous_stage = 'REVIEW' and decision.new_stage = 'IN_PROGRESS')
           )
         ) history on true
-        where wo.workflow_stage = 'REVIEW' and wo.status = 'ACTIVE'
+        where wo.workflow_stage = 'REVIEW' and wo.status = 'ACTIVE' and wo.removed_at is null
         order by wo.priority, submission.created_at
       `,
       sql`
@@ -365,7 +372,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
           from attachments a join users uploader on uploader.id = a.uploaded_by
           where a.work_order_id = wo.id and a.status = 'ATTACHED' and a.attachment_context = 'INTERNAL_PROCUREMENT' and a.removed_at is null
         ) documents on true
-        where procurement.status = 'SUBMITTED' and wo.status = 'ACTIVE'
+        where procurement.status = 'SUBMITTED' and wo.status = 'ACTIVE' and wo.removed_at is null
         order by wo.priority, procurement.submitted_at
       `,
     ]);
@@ -376,13 +383,13 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const query = z.object({ scope: z.enum(['all', 'mine']).default('all'), status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional() }).parse(request.query);
     const scope = resolveWorkOrderScope(request.currentUser.roles, query.scope);
     const rows = scope === 'mine'
-      ? await sql<WorkOrderRow[]>`${selectWorkOrders} where (
+      ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.removed_at is null and (
           exists (select 1 from work_order_assignees mine where mine.work_order_id = wo.id and mine.user_id = ${request.currentUser.id})
           or exists (select 1 from work_order_workers mine_worker where mine_worker.work_order_id = wo.id and mine_worker.user_id = ${request.currentUser.id})
           or wo.reviewer_id = ${request.currentUser.id}
           or exists (select 1 from work_order_overseers mine_overseer where mine_overseer.work_order_id = wo.id and mine_overseer.user_id = ${request.currentUser.id})
         ) ${query.status ? sql`and wo.status = ${query.status}` : sql``} order by wo.due_date, wo.updated_at`
-      : await sql<WorkOrderRow[]>`${selectWorkOrders} ${query.status ? sql`where wo.status = ${query.status}` : sql``} order by wo.due_date, wo.updated_at`;
+      : await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.removed_at is null ${query.status ? sql`and wo.status = ${query.status}` : sql``} order by wo.due_date, wo.updated_at`;
     const periods = await sql<Array<{ type: string; end_date: string }>>`select type, end_date::text from academic_periods where active = true`;
     const semesterEnd = periods.find((period) => period.type === 'SEMESTER')?.end_date;
     const academicYearEnd = periods.find((period) => period.type === 'ACADEMIC_YEAR')?.end_date;
@@ -394,8 +401,8 @@ export async function workOrderRoutes(app: FastifyInstance) {
   app.get('/work-orders/:id', async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const rows = isManager(request.currentUser.roles)
-      ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id}`
-      : await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and (
+      ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and wo.removed_at is null`
+      : await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and wo.removed_at is null and (
           exists (select 1 from work_order_assignees visible_pic where visible_pic.work_order_id = wo.id and visible_pic.user_id = ${request.currentUser.id})
           or exists (select 1 from work_order_workers visible_worker where visible_worker.work_order_id = wo.id and visible_worker.user_id = ${request.currentUser.id})
           or wo.reviewer_id = ${request.currentUser.id}
@@ -440,6 +447,25 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const academicYearEnd = periods.find((period) => period.type === 'ACADEMIC_YEAR')?.end_date;
     const deadlineGroup = getDeadlineGroup({ dueDate: rows[0].due_date, status: rows[0].status, today: new Date(), semesterEnd, academicYearEnd });
     return { data: { ...rows[0], deadlineGroup, updates, audits, attachments } };
+  });
+
+  app.delete('/work-orders/:id', { preHandler: requireAdministrator }, async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const result = await sql.begin(async (transaction) => {
+      const rows = await transaction<Array<{ work_order_number: string; title: string }>>`
+        select work_order_number, title from work_orders where id = ${id} and removed_at is null for update
+      `;
+      const workOrder = rows[0];
+      if (!workOrder) return null;
+      await transaction`
+        insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, correlation_id)
+        values (${id}, ${request.currentUser.id}, 'WORK_ORDER_DELETED', null, ${transaction.json({ workOrderNumber: workOrder.work_order_number, title: workOrder.title })}, ${request.id})
+      `;
+      await transaction`update work_orders set removed_at = now(), removed_by = ${request.currentUser.id}, updated_at = now() where id = ${id}`;
+      return { id };
+    });
+    if (!result) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
+    return { data: result };
   });
 
   app.post('/work-orders/:id/progress/:progressUpdateId/comments', async (request, reply) => {

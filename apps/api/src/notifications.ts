@@ -22,6 +22,7 @@ export async function notificationRoutes(app: FastifyInstance) {
       from notifications n
       left join work_orders wo on wo.id = n.work_order_id
       where n.recipient_user_id = ${request.currentUser.id}
+        and (n.work_order_id is null or wo.removed_at is null)
         ${query.unreadOnly ? sql`and n.read_status = false` : sql``}
       order by n.created_at desc
       limit ${query.limit}
@@ -31,16 +32,19 @@ export async function notificationRoutes(app: FastifyInstance) {
 
   app.get('/notifications/unread-count', async (request) => {
     const rows = await sql<Array<{ count: number }>>`
-      select count(*)::int as count from notifications
-      where recipient_user_id = ${request.currentUser.id} and read_status = false
+      select count(*)::int as count from notifications n
+      left join work_orders wo on wo.id = n.work_order_id
+      where n.recipient_user_id = ${request.currentUser.id} and n.read_status = false
+        and (n.work_order_id is null or wo.removed_at is null)
     `;
     return { data: { count: rows[0]?.count ?? 0 } };
   });
 
   app.post('/notifications/read-all', async (request) => {
     const rows = await sql<Array<{ id: string }>>`
-      update notifications set read_status = true, read_at = coalesce(read_at, now())
-      where recipient_user_id = ${request.currentUser.id} and read_status = false
+      update notifications n set read_status = true, read_at = coalesce(n.read_at, now())
+      where n.recipient_user_id = ${request.currentUser.id} and n.read_status = false
+        and (n.work_order_id is null or exists (select 1 from work_orders wo where wo.id = n.work_order_id and wo.removed_at is null))
       returning id
     `;
     return { data: { updated: rows.length } };

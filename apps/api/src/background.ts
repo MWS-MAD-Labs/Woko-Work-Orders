@@ -73,7 +73,7 @@ async function generateReminders(localDate: string) {
     select wo.id, wo.work_order_number, wo.title, wo.due_date::text, wo.priority, wo.reviewer_id,
       coalesce(array_agg(wa.user_id) filter (where wa.user_id is not null), array[wo.primary_assignee_id]) as assignee_ids
     from work_orders wo left join work_order_assignees wa on wa.work_order_id = wo.id
-    where wo.status = 'ACTIVE' and wo.due_date <= (${localDate}::date + 7)
+    where wo.status = 'ACTIVE' and wo.removed_at is null and wo.due_date <= (${localDate}::date + 7)
     group by wo.id
   `;
   let generated = 0;

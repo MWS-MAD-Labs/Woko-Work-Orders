@@ -373,6 +373,14 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .drawer { animation: drawer-enter var(--motion-slow) var(--ease-emphasized) both; }
 .sheet, .drive-browser { animation: dialog-enter var(--motion-slow) var(--ease-emphasized) both; }
 .action-panel { animation: panel-enter var(--motion-slow) var(--ease-emphasized) both; }
+
+/* Administrator work-order deletion */
+.delete-work-order-button { color: var(--red); border-color: #edc9ca; }
+.delete-work-order-button:hover:not(:disabled) { color: #fff; border-color: var(--red); background: var(--red); }
+.delete-confirmation > p { margin: 0; color: #594e4f; line-height: 1.65; }
+.delete-confirmation footer { gap: 10px; }
+.destructive-button { background: var(--red); box-shadow: 0 6px 15px #a52c3038; }
+.destructive-button:not(:disabled):hover { background: #872327; box-shadow: 0 9px 22px #a52c3042; }
 .notification-card.unread { animation: unread-enter 360ms var(--ease-emphasized) both; }
 .notification-button > span, .nav-count { animation: badge-pop 300ms var(--ease-emphasized) both; }
 .loading-card { animation: dialog-enter var(--motion-slow) var(--ease-emphasized) both; }
