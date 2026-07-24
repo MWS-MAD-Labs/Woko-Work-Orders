@@ -14,3 +14,16 @@ describe('health endpoint', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 });
+
+describe('validation errors', () => {
+  it('uses the API error envelope for Zod errors thrown inside route plugins', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/v1/auth/login?redirect=https://example.com' });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Please check the submitted information.',
+      },
+    });
+  });
+});

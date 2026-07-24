@@ -180,7 +180,7 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
       <Field label={t('title')} required><input value={data.title} onChange={(event) => set('title', event.target.value)} minLength={3} required /></Field>
       <Field label={t('category')} required><select value={data.category} onChange={(event) => set('category', event.target.value)}>{categoryOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
       <Field label={t('description')} required><textarea value={data.description} onChange={(event) => set('description', event.target.value)} minLength={10} rows={5} required /></Field>
-      <Field label={t('priority')} required><select value={data.priority} onChange={(event) => set('priority', event.target.value)}>{priorities.map((priority) => <option key={priority}>{priorityLabels[locale][priority]}</option>)}</select></Field>
+      <Field label={t('priority')} required><select value={data.priority} onChange={(event) => set('priority', event.target.value)}>{priorities.map((priority) => <option key={priority} value={priority}>{priorityLabels[locale][priority]}</option>)}</select></Field>
       <Field label={t('workType')} required><select value={data.workType} onChange={(event) => { const workType = event.target.value; set('workType', workType); if (workType === 'VENDOR') setWorkerIds([]); }}>{workTypeOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
       {data.workType === 'VENDOR' && <small>Vendor work does not use internal workers.</small>}
     </div>,

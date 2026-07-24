@@ -36,6 +36,16 @@ export async function buildApp() {
     limits: { files: 1, fields: 4, parts: 5, fileSize: 15 * 1024 * 1024, fieldSize: 10 * 1024 },
   });
 
+  app.setErrorHandler((error, request, reply) => {
+    const isZodError = error instanceof ZodError
+      || (error instanceof Error && error.name === 'ZodError' && 'flatten' in error && typeof error.flatten === 'function');
+    if (isZodError) {
+      return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Please check the submitted information.', details: (error as ZodError).flatten(), requestId: request.id } });
+    }
+    request.log.error(error);
+    return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.', requestId: request.id } });
+  });
+
   app.get('/health/live', async () => ({ status: 'ok' }));
   app.get('/health/ready', async (_request, reply) => {
     try {
@@ -51,13 +61,5 @@ export async function buildApp() {
   await app.register(reportRoutes, { prefix: '/api/v1' });
   await app.register(adminLocationRoutes, { prefix: '/api/v1' });
   await app.register(adminWorkSettingRoutes, { prefix: '/api/v1' });
-
-  app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ZodError) {
-      return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Please check the submitted information.', details: error.flatten(), requestId: request.id } });
-    }
-    request.log.error(error);
-    return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.', requestId: request.id } });
-  });
   return app;
 }
