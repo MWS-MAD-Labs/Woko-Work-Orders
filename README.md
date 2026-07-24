@@ -2,7 +2,7 @@
 
 Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.6.5** is the current production release candidate.
 
-> **Release status:** Ready for release validation. See the [v0.6.0 release notes](docs/releases/v0.6.0.md) for upgrade details and validation requirements.
+> **Release status:** Ready for release validation. See the [v0.6.5 release notes](docs/releases/v0.6.5.md) for upgrade details and validation requirements.
 
 ## What v0.6.5 includes
 
