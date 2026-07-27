@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate } from './auth.js';
+import { authenticate, requireAdministrator } from './auth.js';
 import { sql } from './database/client.js';
 import { localizeNotification } from './notification-localization.js';
 
@@ -54,6 +54,32 @@ export async function notificationRoutes(app: FastifyInstance) {
       limit ${query.limit}
     `;
     return { data: rows.map((row) => localizeNotification(row as { type: string; title: string; message: string }, request.currentUser.preferredLocale)) };
+  });
+
+  app.post('/notifications/:id/retry-email', { preHandler: requireAdministrator }, async (request, reply) => {
+    const { id } = notificationParams.parse(request.params);
+    const result = await sql.begin(async (transaction) => {
+      const rows = await transaction<Array<{ email_status: string }>>`
+        select email_status from notifications where id = ${id} for update
+      `;
+      const notification = rows[0];
+      if (!notification) return { error: 'NOT_FOUND' } as const;
+      if (notification.email_status !== 'FAILED') return { error: 'EMAIL_NOT_FAILED' } as const;
+
+      await transaction`
+        update notifications
+        set email_status = 'PENDING', email_attempts = 0, email_last_error = null, email_sent_at = null
+        where id = ${id}
+      `;
+      await transaction`
+        insert into background_jobs (job_type, payload, idempotency_key)
+        values ('NOTIFICATION_EMAIL', ${transaction.json({ notificationId: id })}, ${`notification-email-retry:${id}:${crypto.randomUUID()}`})
+      `;
+      return { retried: true } as const;
+    });
+    if (result.error === 'NOT_FOUND') return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Notification not found.', requestId: request.id } });
+    if (result.error === 'EMAIL_NOT_FAILED') return reply.code(422).send({ error: { code: 'EMAIL_NOT_FAILED', message: 'Only failed notification emails can be retried.', requestId: request.id } });
+    return { data: result };
   });
 
   app.get('/notifications/unread-count', async (request) => {

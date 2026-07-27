@@ -318,7 +318,7 @@ export default function App() {
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
     {showOrganizationSettings && currentUser.roles.includes('ADMINISTRATOR') && <OrganizationSettings onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
-    {showNotifications && <NotificationsView onClose={() => setShowNotifications(false)} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} />}
+    {showNotifications && <NotificationsView onClose={() => setShowNotifications(false)} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
     {showReports && <ReportsView onClose={() => setShowReports(false)} />}
     {showCreate && references && <div className="sheet-backdrop" onMouseDown={() => setShowCreate(false)}><div onMouseDown={(event) => event.stopPropagation()}><CreateWorkOrderForm references={references} currentUser={currentUser} locale={locale} onClose={() => setShowCreate(false)} onCreated={async (id) => { setShowCreate(false); await loadOrders(); setSelected(await api<Order>(`/work-orders/${id}`)); }} /></div></div>}
   </div>;

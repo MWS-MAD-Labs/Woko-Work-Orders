@@ -253,10 +253,15 @@ async function finishJob(job: JobRow, error?: unknown) {
     return;
   }
   const message = error instanceof Error ? error.message.slice(0, 2000) : 'Unknown background job error.';
+  const exhausted = job.attempts >= job.max_attempts;
   if (job.job_type === 'NOTIFICATION_EMAIL' && typeof job.payload.notificationId === 'string') {
-    await sql`update notifications set email_status = 'FAILED', email_last_error = ${message} where id = ${job.payload.notificationId}`;
+    await sql`
+      update notifications
+      set email_status = ${exhausted ? 'FAILED' : 'RETRYING'}, email_last_error = ${message}
+      where id = ${job.payload.notificationId}
+    `;
   }
-  if (job.attempts >= job.max_attempts) {
+  if (exhausted) {
     await sql`
       update background_jobs set status = 'FAILED', last_error = ${message}, locked_at = null,
         locked_by = null, updated_at = now() where id = ${job.id}
