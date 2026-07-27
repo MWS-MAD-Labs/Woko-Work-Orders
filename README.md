@@ -1,10 +1,10 @@
 # Woko
 
-Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.6.5** is the current production release candidate.
+Woko is Millennia World School's mobile-first facilities work-order application. Version **v0.6.6** is the current production release candidate.
 
-> **Release status:** Ready for release validation. See the [v0.6.5 release notes](docs/releases/v0.6.5.md) for upgrade details and validation requirements.
+> **Release status:** Ready for release validation. See the [v0.6.6 release notes](docs/releases/v0.6.6.md) for upgrade details and validation requirements.
 
-## What v0.6.5 includes
+## What v0.6.6 includes
 
 - Mobile-first installable PWA with Bahasa Indonesia and English interfaces
 - Internal and vendor work-order workflows with role-aware transitions
@@ -16,7 +16,7 @@ Woko is Millennia World School's mobile-first facilities work-order application.
 - Timeline updates, discussions, evidence, and immutable audit records
 - Google Workspace authentication and administrator-managed access
 - Google Drive evidence and project-folder integration
-- In-app notifications and optional Gmail delivery
+- In-app notifications, opt-in Web Push for installed PWAs, and optional Gmail delivery
 - Work-order reporting and operational breakdowns
 - Administrator settings for users, locations, and organization work settings
 - PostgreSQL migrations, seed data, health endpoints, and Docker Compose deployment
@@ -28,7 +28,7 @@ Woko is Millennia World School's mobile-first facilities work-order application.
 | Web | React 19, Vite 7, TypeScript, PWA |
 | API | Fastify 5, TypeScript, Zod |
 | Data | PostgreSQL 17 |
-| Integrations | Google OAuth/OIDC, Drive, Picker, Gmail |
+| Integrations | Google OAuth/OIDC, Drive, Picker, Gmail, Web Push |
 | Deployment | Docker Compose, Nginx |
 | Testing | Vitest, TypeScript type checking |
 
@@ -125,6 +125,7 @@ By default the application is published from the web container at `http://<host>
 - [Architecture overview](docs/architecture.md)
 - [Docker deployment guide](docs/deployment/docker.md)
 - [Komodo deployment guide](docs/deployment/komodo.md)
+- [v0.6.6 release notes](docs/releases/v0.6.6.md)
 - [v0.6.5 release notes](docs/releases/v0.6.5.md)
 - [v0.6.0 release notes](docs/releases/v0.6.0.md)
 - [v0.5.1 release notes](docs/releases/v0.5.1.md)
@@ -140,7 +141,7 @@ By default the application is published from the web container at `http://<host>
 
 ## Versioning
 
-The root package and all workspaces identify this release candidate as `0.6.5`. Release tags and GitHub releases are created only after the deployed commit passes production verification.
+The root package and all workspaces identify this release candidate as `0.6.6`. Release tags and GitHub releases are created only after the deployed commit passes production verification.
 
 ## License
 

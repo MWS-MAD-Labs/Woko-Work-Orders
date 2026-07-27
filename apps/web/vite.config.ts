@@ -8,6 +8,9 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       includeAssets: ['icon.svg', 'favicon.ico', 'apple-touch-icon.png', 'icon-maskable-512.png'],
       manifest: {
         id: '/',

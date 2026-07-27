@@ -25,6 +25,7 @@ const translations = {
     semester: 'Semester', academicYear: 'Tahun akademik', plannedStartDate: 'Tanggal mulai rencana', planSummary: 'Ringkasan rencana', untitledWorkOrder: 'Pekerjaan tanpa judul',
     back: 'Kembali', next: 'Berikutnya', creating: 'Membuat...', createWorkOrder: 'Buat pekerjaan', isRequired: 'wajib diisi.',
     titleDescriptionMinimum: 'Masukkan judul dan deskripsi minimal 10 karakter.', workOrderCreateFailed: 'Pekerjaan tidak dapat dibuat.',
+    enablePushNotifications: 'Aktifkan notifikasi perangkat', enable: 'Aktifkan', enablingPushNotifications: 'Mengaktifkan...', pushNotificationsDescription: 'Terima pembaruan pekerjaan walaupun Woko tidak sedang dibuka.', pushNotificationsDenied: 'Izin notifikasi ditolak. Aktifkan di pengaturan perangkat atau browser.', pushNotificationsUnavailable: 'Notifikasi perangkat belum dikonfigurasi di server ini.', pushNotificationsUnsupported: 'Perangkat atau browser ini belum mendukung notifikasi web.', pushNotificationsFailed: 'Notifikasi perangkat tidak dapat diaktifkan. Coba lagi.',
   },
   en: {
     productName: 'Woko', appSubtitle: 'Work Order', workOrders: 'Work Orders', allWork: 'All', myWork: 'My involvement', approvals: 'Approvals', notifications: 'Notifications',
@@ -49,6 +50,7 @@ const translations = {
     semester: 'Semester', academicYear: 'Academic year', plannedStartDate: 'Planned start date', planSummary: 'Plan summary', untitledWorkOrder: 'Untitled work order',
     back: 'Back', next: 'Next', creating: 'Creating...', createWorkOrder: 'Create work order', isRequired: 'is required.',
     titleDescriptionMinimum: 'Provide a title and a description of at least 10 characters.', workOrderCreateFailed: 'Work order could not be created.',
+    enablePushNotifications: 'Enable device notifications', enable: 'Enable', enablingPushNotifications: 'Enabling...', pushNotificationsDescription: 'Receive work-order updates even when Woko is not open.', pushNotificationsDenied: 'Notification permission was denied. Enable it in your device or browser settings.', pushNotificationsUnavailable: 'Device notifications have not been configured on this server.', pushNotificationsUnsupported: 'This device or browser does not support web notifications.', pushNotificationsFailed: 'Device notifications could not be enabled. Please try again.',
   },
 } as const;
 

@@ -94,6 +94,11 @@ EMAIL_PROVIDER=disabled
 GMAIL_SENDER_EMAIL=
 GMAIL_SENDER_NAME=Woko Notifications
 WOKO_GMAIL_CREDENTIALS_FILE=/srv/woko-secrets/gmail-service-account.json
+
+# Optional Web Push (generate once with: npx web-push generate-vapid-keys)
+WEB_PUSH_VAPID_PUBLIC_KEY=
+WEB_PUSH_VAPID_PRIVATE_KEY=
+WEB_PUSH_SUBJECT=mailto:notifications@example.org
 ```
 
 Important details:
@@ -153,7 +158,19 @@ The service account uses the Drive scope to create private work-order folders, u
 
 The Compose stack mounts the Drive credential at `/run/secrets/woko_google_credentials` and sets `GOOGLE_APPLICATION_CREDENTIALS` automatically.
 
-## 7. Optional Gmail delivery
+## 7. Optional Web Push delivery
+
+Web Push allows the installed PWA to receive device notifications while it is backgrounded or closed. It requires a public **HTTPS** origin and a stable VAPID key pair:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Set `WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, and a contact URL or `mailto:` address in `WEB_PUSH_SUBJECT` in protected deployment configuration. Do not rotate keys during ordinary releases: rotation invalidates existing device subscriptions, requiring users to opt in again.
+
+Each user must open the installed PWA and approve the **Enable device notifications** permission prompt. On iPhone, Web Push is available only after adding Woko to the Home Screen on a supported iOS version.
+
+## 8. Optional Gmail delivery
 
 In-app notifications work with `EMAIL_PROVIDER=disabled`. To enable email:
 

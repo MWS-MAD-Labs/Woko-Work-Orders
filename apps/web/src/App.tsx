@@ -9,6 +9,7 @@ import type { CurrentUser, ReferenceData, WorkOrder } from './types';
 import { OrganizationSettings } from './OrganizationSettings';
 import { ApprovalsView } from './ApprovalsView';
 import { NotificationsView } from './NotificationsView';
+import { subscribeToPushNotifications } from './push';
 import { ReportsView } from './ReportsView';
 import { getProgressActionLabel, getProjectPhases, getProjectProgress, getUpdateLabel } from './work-order-progress';
 import { formatParticipantChanges } from './participant-change';
@@ -195,6 +196,7 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [pushStatus, setPushStatus] = useState<'idle' | 'subscribing' | 'subscribed' | 'unsupported' | 'unavailable' | 'denied' | 'failed'>('idle');
   const deferredQuery = useDeferredValue(query.toLowerCase());
   const t = translator(locale);
 
@@ -252,6 +254,11 @@ export default function App() {
     await api('/me/preferences', { method: 'PATCH', body: JSON.stringify({ locale: next }) }).catch(() => undefined);
   };
 
+  const enablePushNotifications = async () => {
+    setPushStatus('subscribing');
+    try { setPushStatus(await subscribeToPushNotifications()); } catch { setPushStatus('failed'); }
+  };
+
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => undefined); setCurrentUser(null); setAuthState('unauthenticated'); };
   const loginError = new URLSearchParams(window.location.search).get('error') ?? undefined;
   if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>Checking your session…</p></section></main>;
@@ -282,6 +289,8 @@ export default function App() {
       <header className="mobile-header"><button className="icon-button mobile-language-button" aria-label={t('language')} onClick={changeLocale}><Languages /></button><a className="brand compact" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a><button className="icon-button notification-button" aria-label={t('notifications')} onClick={() => setShowNotifications(true)}><Bell />{unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button></header>
       <div className="page-content">
         <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{t('workOrders')}</h1><p>{t('overview')}</p></div><div className="header-actions">{canCreate && <button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button>}</div></div>
+
+        {pushStatus !== 'subscribed' && <section className="push-notification-prompt" aria-label={t('enablePushNotifications')}><div><strong>{t('enablePushNotifications')}</strong><p>{pushStatus === 'denied' ? t('pushNotificationsDenied') : pushStatus === 'unavailable' ? t('pushNotificationsUnavailable') : pushStatus === 'unsupported' ? t('pushNotificationsUnsupported') : pushStatus === 'failed' ? t('pushNotificationsFailed') : t('pushNotificationsDescription')}</p></div>{pushStatus !== 'denied' && pushStatus !== 'unavailable' && pushStatus !== 'unsupported' && <button className="secondary-button" onClick={() => void enablePushNotifications()} disabled={pushStatus === 'subscribing'}>{pushStatus === 'subscribing' ? t('enablingPushNotifications') : t('enable')}</button>}</section>}
 
         <section className="metric-grid" aria-label={t('overview')}>
           <article><span className="metric-icon navy"><BriefcaseBusiness /></span><span><strong>{counts.active}</strong><small>{t('active')}</small></span></article>

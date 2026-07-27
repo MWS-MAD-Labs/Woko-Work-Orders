@@ -23,6 +23,9 @@ const schema = z.object({
   JOB_BATCH_SIZE: z.coerce.number().int().min(1).max(100).default(20),
   SCHEDULER_INTERVAL_MS: z.coerce.number().int().min(1000).default(60_000),
   EMAIL_PROVIDER: z.enum(['disabled', 'gmail']).default('disabled'),
+  WEB_PUSH_VAPID_PUBLIC_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  WEB_PUSH_VAPID_PRIVATE_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  WEB_PUSH_SUBJECT: z.string().url().default('https://woko.app'),
   GMAIL_SENDER_EMAIL: z.preprocess((value) => value === '' ? undefined : value, z.string().email().optional()),
   GMAIL_SENDER_NAME: z.string().trim().min(1).max(100).default('Woko Notifications'),
   GMAIL_APPLICATION_CREDENTIALS: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
@@ -31,11 +34,17 @@ const schema = z.object({
   GOOGLE_APPLICATION_CREDENTIALS: z.string().min(1).optional(),
 });
 
-export const config = schema.parse(process.env);
+export const config = schema.transform((value) => ({
+  ...value,
+  WEB_PUSH_ENABLED: Boolean(value.WEB_PUSH_VAPID_PUBLIC_KEY && value.WEB_PUSH_VAPID_PRIVATE_KEY),
+})).parse(process.env);
 
 if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'test') {
   throw new Error('Test authentication cannot be enabled in production.');
 }
 if (config.EMAIL_PROVIDER === 'gmail' && (!config.GMAIL_SENDER_EMAIL || !config.GMAIL_APPLICATION_CREDENTIALS)) {
   throw new Error('Gmail delivery requires GMAIL_SENDER_EMAIL and GMAIL_APPLICATION_CREDENTIALS.');
+}
+if (Boolean(config.WEB_PUSH_VAPID_PUBLIC_KEY) !== Boolean(config.WEB_PUSH_VAPID_PRIVATE_KEY)) {
+  throw new Error('Web Push requires both WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY.');
 }

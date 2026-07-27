@@ -5,9 +5,35 @@ import { sql } from './database/client.js';
 import { localizeNotification } from './notification-localization.js';
 
 const notificationParams = z.object({ id: z.string().uuid() });
+const pushSubscriptionSchema = z.object({
+  endpoint: z.string().url().max(4_000),
+  keys: z.object({ p256dh: z.string().min(1).max(1_000), auth: z.string().min(1).max(1_000) }),
+});
 
 export async function notificationRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
+
+  app.get('/notifications/push-public-key', async () => {
+    const { webPushEnabled, webPushPublicKey } = await import('./push.js');
+    return { data: { enabled: webPushEnabled(), publicKey: webPushPublicKey() ?? null } };
+  });
+
+  app.put('/notifications/push-subscription', async (request) => {
+    const subscription = pushSubscriptionSchema.parse(request.body);
+    await sql`
+      insert into push_subscriptions (user_id, endpoint, p256dh, auth)
+      values (${request.currentUser.id}, ${subscription.endpoint}, ${subscription.keys.p256dh}, ${subscription.keys.auth})
+      on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh,
+        auth = excluded.auth, updated_at = now()
+    `;
+    return { data: { subscribed: true } };
+  });
+
+  app.delete('/notifications/push-subscription', async (request) => {
+    const subscription = pushSubscriptionSchema.parse(request.body);
+    await sql`delete from push_subscriptions where user_id = ${request.currentUser.id} and endpoint = ${subscription.endpoint}`;
+    return { data: { subscribed: false } };
+  });
 
   app.get('/notifications', async (request) => {
     const query = z.object({

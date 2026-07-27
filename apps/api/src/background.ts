@@ -6,6 +6,7 @@ import { renderInvitationEmail } from './invitation-email.js';
 import { renderNotificationEmail } from './notification-email.js';
 import { localizeNotification, type NotificationLocale } from './notification-localization.js';
 import { deleteDriveFile } from './drive.js';
+import { pushSubscriptionHasExpired, sendPushNotification, webPushEnabled } from './push.js';
 
 type JobRow = {
   id: string;
@@ -138,6 +139,32 @@ async function deliverNotificationEmail(notificationId: string) {
   await sql`update notifications set email_status = 'SENT', email_sent_at = now(), email_last_error = null where id = ${notificationId}`;
 }
 
+async function deliverNotificationPush(notificationId: string) {
+  if (!webPushEnabled()) return;
+  const rows = await sql<Array<{ id: string; title: string; message: string; work_order_id: string | null; endpoint: string; p256dh: string; auth: string }>>`
+    select n.id, n.title, n.message, n.work_order_id, ps.endpoint, ps.p256dh, ps.auth
+    from notifications n
+    join push_subscriptions ps on ps.user_id = n.recipient_user_id
+    where n.id = ${notificationId}
+  `;
+  for (const subscription of rows) {
+    try {
+      await sendPushNotification(subscription, {
+        title: subscription.title,
+        body: subscription.message,
+        notificationId: subscription.id,
+        workOrderId: subscription.work_order_id,
+      });
+    } catch (error) {
+      if (pushSubscriptionHasExpired(error)) {
+        await sql`delete from push_subscriptions where endpoint = ${subscription.endpoint}`;
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
 async function deliverInvitationEmail(userId: string) {
   const rows = await sql<Array<{ email: string; full_name: string; active: boolean; last_login_at: string | null }>>`
     select email::text, full_name, active, last_login_at::text from users where id = ${userId}
@@ -199,6 +226,10 @@ async function processJob(job: JobRow) {
   }
   if (job.job_type === 'NOTIFICATION_EMAIL') {
     await deliverNotificationEmail(zString(job.payload.notificationId));
+    return;
+  }
+  if (job.job_type === 'NOTIFICATION_PUSH') {
+    await deliverNotificationPush(zString(job.payload.notificationId));
     return;
   }
   if (job.job_type === 'INVITATION_EMAIL') {
