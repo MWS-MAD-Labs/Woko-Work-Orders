@@ -3,6 +3,7 @@ import { Camera, CheckCircle2, ExternalLink, FileText, History, RotateCcw, X } f
 import { format } from 'date-fns';
 import { api } from './api';
 import { ProposalDecisionForm, WorkflowActionForm } from './WorkOrderForms';
+import type { Locale } from './i18n';
 import type { ApprovalQueue, CompletionReviewItem, CurrentUser, ProposalApprovalItem, WorkOrder } from './types';
 
 interface CompletionDecision {
@@ -10,7 +11,7 @@ interface CompletionDecision {
   action: 'forward' | 'reject';
 }
 
-export function ApprovalsView({ currentUser, onClose, onOpenOrder }: { currentUser: CurrentUser; onClose: () => void; onOpenOrder: (order: WorkOrder) => void }) {
+export function ApprovalsView({ currentUser, locale, onClose, onOpenOrder }: { currentUser: CurrentUser; locale: Locale; onClose: () => void; onOpenOrder: (order: WorkOrder) => void }) {
   const [queue, setQueue] = useState<ApprovalQueue>({ proposalApprovals: [], completionReviews: [], internalProcurementReviews: [] });
   const [proposalDecision, setProposalDecision] = useState<WorkOrder | null>(null);
   const [completionDecision, setCompletionDecision] = useState<CompletionDecision | null>(null);
@@ -99,7 +100,7 @@ export function ApprovalsView({ currentUser, onClose, onOpenOrder }: { currentUs
         {!queue.completionReviews.length && !error && <p className="empty-approval">No work is awaiting completion review.</p>}
       </section>
     </div>
-    {proposalDecision && <ProposalDecisionForm order={proposalDecision} onClose={() => setProposalDecision(null)} onChanged={async () => { setProposalDecision(null); await load(); }} />}
-    {completionDecision && <WorkflowActionForm order={completionDecision.order} currentUser={currentUser} initialAction={completionDecision.action} onClose={() => setCompletionDecision(null)} onChanged={async () => { setCompletionDecision(null); await load(); }} />}
+    {proposalDecision && <ProposalDecisionForm order={proposalDecision} locale={locale} onClose={() => setProposalDecision(null)} onChanged={async () => { setProposalDecision(null); await load(); }} />}
+    {completionDecision && <WorkflowActionForm order={completionDecision.order} currentUser={currentUser} locale={locale} initialAction={completionDecision.action} onClose={() => setCompletionDecision(null)} onChanged={async () => { setCompletionDecision(null); await load(); }} />}
   </section></div>;
 }

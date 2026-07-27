@@ -644,7 +644,11 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
   </form>;
 }
 
-export function ProposalDecisionForm({ order, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'>) {
+export function ProposalDecisionForm({ order, locale, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'> & { locale: Locale }) {
+  const copy = locale === 'id'
+    ? { overview: 'Tinjauan manajemen', title: 'Tinjau proposal vendor', intro: 'Setujui, tolak, atau minta revisi proposal vendor.', approved: 'Setujui', rejected: 'Tolak', revision: 'Minta revisi', plannedStartDate: 'Tanggal mulai rencana', decisionNote: 'Catatan keputusan', saving: 'Menyimpan...', record: 'Catat keputusan', failed: 'Keputusan proposal tidak dapat dicatat.' }
+    : { overview: 'Director overview', title: 'Review vendor proposal', intro: 'Approve, reject, or request a revision to the vendor proposal.', approved: 'Approve', rejected: 'Reject', revision: 'Request revision', plannedStartDate: 'Planned start date', decisionNote: 'Decision note', saving: 'Saving...', record: 'Record decision', failed: 'Proposal decision failed.' };
+  const decisionLabels: Record<ProposalDecision, string> = { APPROVED: copy.approved, REJECTED: copy.rejected, REVISION_REQUIRED: copy.revision };
   const [decision, setDecision] = useState<ProposalDecision>('APPROVED');
   const [decisionNote, setDecisionNote] = useState('');
   const [plannedStartDate, setPlannedStartDate] = useState('');
@@ -655,16 +659,16 @@ export function ProposalDecisionForm({ order, onClose, onChanged }: Omit<Workflo
     try {
       await api(`/work-orders/${order.id}/proposal/decision`, { method: 'POST', body: JSON.stringify({ decision, decisionNote, plannedStartDate: decision === 'APPROVED' ? plannedStartDate : undefined, expectedVersion: order.version }) });
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Proposal decision failed.'); } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : copy.failed); } finally { setSubmitting(false); }
   };
   return <form className="action-panel" onSubmit={submit}>
-    <header><div><span>Director overview</span><h3>Review vendor proposal</h3><p className="action-intro">Approve, request a revision, or return the proposal to vendor preparation.</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
-    <div className="segmented-control">{proposalDecisions.map((value) => <button type="button" key={value} className={decision === value ? 'active' : ''} onClick={() => setDecision(value)}>{value.replaceAll('_', ' ')}</button>)}</div>
+    <header><div><span>{copy.overview}</span><h3>{copy.title}</h3><p className="action-intro">{copy.intro}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
+    <div className="segmented-control">{proposalDecisions.map((value) => <button type="button" key={value} className={decision === value ? 'active' : ''} onClick={() => setDecision(value)}>{decisionLabels[value]}</button>)}</div>
     <div className="form-grid compact">
-      {decision === 'APPROVED' && <Field label="Planned start date" required><input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} required /></Field>}
-      <Field label="Decision note" required><textarea rows={4} value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} required /></Field>
+      {decision === 'APPROVED' && <Field label={copy.plannedStartDate} required><input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} required /></Field>}
+      <Field label={copy.decisionNote} required><textarea rows={4} value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} required /></Field>
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting}>{submitting ? 'Saving...' : 'Record decision'}</button></footer>
+    <footer><button className="primary-button" disabled={submitting}>{submitting ? copy.saving : copy.record}</button></footer>
   </form>;
 }
