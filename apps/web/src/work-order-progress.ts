@@ -80,11 +80,13 @@ export function getUpdateLabel(updateType: string, locale: Locale = 'en'): strin
   const labels: Record<Locale, Record<string, string>> = {
     en: {
       STAGE_TRANSITION: 'Progress updated', VENDOR_SEARCH_UPDATE: 'Vendor search updated', PROPOSAL_SUBMISSION: 'Proposal recorded',
+      PROPOSAL_APPROVAL_REQUESTED: 'Proposal sent for approval', APPROVAL_DECISION: 'Proposal decision recorded',
       PROPOSAL_APPROVAL_SUBMISSION: 'Proposal sent for approval', PROPOSAL_DECISION: 'Proposal decision recorded', REVIEW_SUBMISSION: 'Sent for final check',
       REVIEW_DECISION: 'Final check completed', CONDITION_CHANGE: 'Work condition updated', DUE_DATE_CHANGE: 'Due date changed', PARTICIPANTS_CHANGED: 'Participants changed', FILE_EVIDENCE_ADDED: 'File evidence added', PROGRESS_UPDATE: 'Progress update',
     },
     id: {
       STAGE_TRANSITION: 'Progres diperbarui', VENDOR_SEARCH_UPDATE: 'Pencarian vendor diperbarui', PROPOSAL_SUBMISSION: 'Proposal dicatat',
+      PROPOSAL_APPROVAL_REQUESTED: 'Proposal dikirim untuk persetujuan', APPROVAL_DECISION: 'Keputusan persetujuan dicatat',
       PROPOSAL_APPROVAL_SUBMISSION: 'Proposal dikirim untuk persetujuan', PROPOSAL_DECISION: 'Keputusan proposal dicatat', REVIEW_SUBMISSION: 'Dikirim untuk pemeriksaan akhir',
       REVIEW_DECISION: 'Pemeriksaan akhir selesai', CONDITION_CHANGE: 'Kondisi pekerjaan diperbarui', DUE_DATE_CHANGE: 'Tenggat diubah', PARTICIPANTS_CHANGED: 'Orang yang terlibat diubah', FILE_EVIDENCE_ADDED: 'Bukti file ditambahkan', PROGRESS_UPDATE: 'Pembaruan progres',
     },
