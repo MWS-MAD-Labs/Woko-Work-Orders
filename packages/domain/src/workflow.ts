@@ -92,7 +92,7 @@ export function canWorkerRecordProgress(input: {
   workType: WorkType;
   stage: WorkflowStage;
 }): boolean {
-  return input.roles.includes('WORKER') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && input.stage === 'IN_PROGRESS';
+  return input.roles.includes('WORKER') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
 }
 
 export const procurementTransitions: Record<InternalProcurementStatus, readonly InternalProcurementStatus[]> = {

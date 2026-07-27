@@ -125,7 +125,8 @@ describe('v0.6 authorization policies', () => {
     expect(canCreateWorkOrder(['WORKER'])).toBe(false);
   });
 
-  it('allows worker progress only for assigned active internal work in progress', () => {
+  it('allows worker progress only for assigned active internal work that is ready or in progress', () => {
+    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'SCHEDULED' })).toBe(true);
     expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(true);
     expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'VENDOR', stage: 'IN_PROGRESS' })).toBe(false);
     expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: false, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(false);
@@ -151,6 +152,7 @@ describe('work-order creation', () => {
     workerIds: [],
     overseerIds: [],
     workType: 'INTERNAL',
+    procurementRequired: false,
     priority: 'HIGH',
     dueDate: '2026-07-31',
     executionWindow: 'NO_RESTRICTION',
@@ -164,6 +166,13 @@ describe('work-order creation', () => {
   it('allows a work order at building level without area or floor details', () => {
     const { locationOptionId: _locationOptionId, roomOrArea: _roomOrArea, ...buildingOnly } = valid;
     expect(createWorkOrderSchema.safeParse(buildingOnly).success).toBe(true);
+  });
+
+  it('requires a procurement choice and a description when procurement is required', () => {
+    const { procurementRequired: _procurementRequired, ...withoutChoice } = valid;
+    expect(createWorkOrderSchema.safeParse(withoutChoice).success).toBe(false);
+    expect(createWorkOrderSchema.safeParse({ ...valid, procurementRequired: true }).success).toBe(false);
+    expect(createWorkOrderSchema.safeParse({ ...valid, procurementRequired: true, procurementRequirementNote: 'Replacement hinges and mounting hardware.' }).success).toBe(true);
   });
 
   it('requires a note for custom execution restrictions', () => {

@@ -1,31 +1,31 @@
-import type { WorkflowStage, WorkType } from '@woko/domain';
+import type { InternalProcurementStatus, WorkflowStage, WorkType } from '@woko/domain';
 
 import type { Locale } from './i18n';
 
 const progressCopy = {
   en: {
-    phases: ['Planned', 'Preparing', 'In progress', 'Checking', 'Completed'],
+    phases: ['Planning', 'Ready for Work', 'In Progress', 'Review', 'Completed'],
     details: {
       PLANNED: 'Scope and responsibility are being confirmed.',
       FINDING_VENDOR: 'The team is finding a suitable vendor.',
       PROPOSAL: 'A vendor proposal is being prepared.',
       APPROVAL: 'The proposal is waiting for management approval.',
-      SCHEDULED: 'The work is ready and waiting for its start date.',
+      SCHEDULED: 'The work is ready. The first progress update will start it.',
       IN_PROGRESS: 'The assigned team is carrying out the work.',
-      REVIEW: 'The work is finished and waiting for a final check.',
+      REVIEW: 'The work was submitted for completion and is waiting for review.',
       COMPLETED: 'The work order has been completed.',
     },
   },
   id: {
-    phases: ['Direncanakan', 'Persiapan', 'Dikerjakan', 'Pemeriksaan', 'Selesai'],
+    phases: ['Perencanaan', 'Siap Dikerjakan', 'Dikerjakan', 'Peninjauan', 'Selesai'],
     details: {
       PLANNED: 'Ruang lingkup dan penanggung jawab sedang dikonfirmasi.',
       FINDING_VENDOR: 'Tim sedang mencari vendor yang sesuai.',
       PROPOSAL: 'Proposal vendor sedang disiapkan.',
       APPROVAL: 'Proposal sedang menunggu persetujuan manajemen.',
-      SCHEDULED: 'Pekerjaan siap dan menunggu tanggal mulai.',
+      SCHEDULED: 'Pekerjaan siap. Pembaruan progres pertama akan memulai pekerjaan.',
       IN_PROGRESS: 'Tim yang ditugaskan sedang mengerjakan pekerjaan ini.',
-      REVIEW: 'Pekerjaan telah selesai dan menunggu pemeriksaan akhir.',
+      REVIEW: 'Pekerjaan telah diajukan untuk penyelesaian dan menunggu peninjauan.',
       COMPLETED: 'Work order telah selesai.',
     },
   },
@@ -33,7 +33,8 @@ const progressCopy = {
 
 export const projectPhases = progressCopy.en.phases;
 
-export function getProjectPhases(locale: Locale = 'en') {
+export function getProjectPhases(locale: Locale = 'en', workType: WorkType = 'INTERNAL') {
+  if (workType === 'VENDOR') return locale === 'id' ? ['Direncanakan', 'Persiapan', 'Dikerjakan', 'Pemeriksaan', 'Selesai'] : ['Planned', 'Preparing', 'In progress', 'Checking', 'Completed'];
   return progressCopy[locale].phases;
 }
 
@@ -41,6 +42,7 @@ interface ProgressInput {
   workflow_stage: WorkflowStage;
   work_type: WorkType;
   status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  procurement?: { status: InternalProcurementStatus } | null;
 }
 
 const phaseByStage: Record<WorkflowStage, number> = {
@@ -55,24 +57,35 @@ const phaseByStage: Record<WorkflowStage, number> = {
 };
 
 export function getProjectProgress(order: ProgressInput, locale: Locale = 'en') {
-  const phaseIndex = order.status === 'COMPLETED' ? 4 : phaseByStage[order.workflow_stage];
+  const basePhaseIndex = order.status === 'COMPLETED' ? 4 : phaseByStage[order.workflow_stage];
   const percentages = [10, 30, 65, 90, 100] as const;
   const copy = progressCopy[locale];
+  const procurementStatus = order.work_type === 'INTERNAL' && order.workflow_stage === 'PLANNED' ? order.procurement?.status : undefined;
+  const procurementCopy: Record<Locale, Partial<Record<InternalProcurementStatus, string>>> = {
+    en: { PROPOSAL_REQUIRED: 'Waiting for Proposal', SUBMITTED: 'Proposal Submitted', REVISION_REQUIRED: 'Waiting for Revised Proposal', REJECTED: 'Proposal Rejected' },
+    id: { PROPOSAL_REQUIRED: 'Menunggu Proposal', SUBMITTED: 'Proposal Diajukan', REVISION_REQUIRED: 'Menunggu Revisi Proposal', REJECTED: 'Proposal Ditolak' },
+  };
+  const isProcuring = Boolean(procurementStatus && !['NOT_REQUIRED', 'APPROVED'].includes(procurementStatus));
+  const vendorPhaseLabels = locale === 'id' ? ['Direncanakan', 'Persiapan', 'Dikerjakan', 'Pemeriksaan', 'Selesai'] : ['Planned', 'Preparing', 'In progress', 'Checking', 'Completed'];
+  const phaseIndex = isProcuring ? 1 : basePhaseIndex;
+  const label = isProcuring ? (locale === 'id' ? 'Pengadaan' : 'Procuring') : order.work_type === 'VENDOR' ? vendorPhaseLabels[phaseIndex] ?? copy.phases[phaseIndex] : copy.phases[phaseIndex];
   return {
     phaseIndex,
-    label: copy.phases[phaseIndex],
+    label,
+    sublabel: procurementStatus ? procurementCopy[locale][procurementStatus] : undefined,
     percent: percentages[phaseIndex],
-    detail: copy.details[order.workflow_stage],
+    detail: isProcuring ? (locale === 'id' ? 'Pengadaan harus diselesaikan sebelum pekerjaan siap dikerjakan.' : 'Procurement must be resolved before the work is ready to start.') : copy.details[order.workflow_stage],
   };
 }
 
 export function getProgressActionLabel(order: ProgressInput, isManager: boolean, locale: Locale = 'en'): string {
   const labels = locale === 'id'
-    ? { reopen: 'Buka kembali pekerjaan', reviewProposal: 'Tinjau proposal', waitingApproval: 'Menunggu persetujuan', reviewCompletion: 'Tinjau penyelesaian', waitingFinalCheck: 'Menunggu pemeriksaan akhir', updateProgress: 'Perbarui progres' }
-    : { reopen: 'Reopen work order', reviewProposal: 'Review proposal', waitingApproval: 'Waiting for approval', reviewCompletion: 'Review completion', waitingFinalCheck: 'Waiting for final check', updateProgress: 'Update progress' };
+    ? { reopen: 'Buka kembali pekerjaan', reviewProposal: 'Tinjau proposal', waitingApproval: 'Menunggu persetujuan', reviewCompletion: 'Tinjau penyelesaian', waitingFinalCheck: 'Menunggu pemeriksaan akhir', continueProcurement: 'Lanjutkan pengadaan', updateProgress: 'Perbarui progres' }
+    : { reopen: 'Reopen work order', reviewProposal: 'Review proposal', waitingApproval: 'Waiting for approval', reviewCompletion: 'Review completion', waitingFinalCheck: 'Waiting for final check', continueProcurement: 'Continue procurement', updateProgress: 'Update progress' };
   if (order.status === 'COMPLETED') return labels.reopen;
   if (order.workflow_stage === 'APPROVAL') return isManager ? labels.reviewProposal : labels.waitingApproval;
   if (order.workflow_stage === 'REVIEW') return isManager ? labels.reviewCompletion : labels.waitingFinalCheck;
+  if (order.workflow_stage === 'PLANNED' && order.work_type === 'INTERNAL' && order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status)) return labels.continueProcurement;
   return labels.updateProgress;
 }
 

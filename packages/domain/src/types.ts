@@ -229,10 +229,21 @@ export const createWorkOrderSchema = z.object({
   priority: z.enum(priorities).default('NORMAL'),
   dueDate: z.string().date(),
   plannedStartDate: z.string().date().optional(),
+  procurementRequired: z.boolean().optional(),
+  procurementRequirementNote: z.string().trim().max(2000).optional(),
   executionWindow: z.enum(executionWindows).default('NO_RESTRICTION'),
   executionWindowNote: z.string().trim().max(500).optional(),
   planSummary: z.string().trim().min(3).max(2000),
 }).superRefine((value, context) => {
+  if (value.workType === 'INTERNAL' && value.procurementRequired === undefined) {
+    context.addIssue({ code: 'custom', path: ['procurementRequired'], message: 'Choose whether procurement is required.' });
+  }
+  if (value.workType === 'INTERNAL' && value.procurementRequired && !value.procurementRequirementNote?.trim()) {
+    context.addIssue({ code: 'custom', path: ['procurementRequirementNote'], message: 'Describe what must be procured.' });
+  }
+  if (value.workType === 'VENDOR' && (value.procurementRequired !== undefined || value.procurementRequirementNote)) {
+    context.addIssue({ code: 'custom', path: ['procurementRequired'], message: 'Internal procurement only applies to internal work orders.' });
+  }
   if (value.executionWindow === 'CUSTOM_RESTRICTION' && !value.executionWindowNote) {
     context.addIssue({ code: 'custom', path: ['executionWindowNote'], message: 'Custom restriction note is required.' });
   }

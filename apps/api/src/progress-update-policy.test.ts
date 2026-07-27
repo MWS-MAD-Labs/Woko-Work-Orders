@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { canRecordMidProgress } from './work-orders';
 
 describe('mid-progress update policy', () => {
-  it('allows an update while active work is in progress', () => {
+  it('allows an update while active work is ready or in progress', () => {
+    expect(canRecordMidProgress('ACTIVE', 'SCHEDULED')).toBe(true);
     expect(canRecordMidProgress('ACTIVE', 'IN_PROGRESS')).toBe(true);
   });
 

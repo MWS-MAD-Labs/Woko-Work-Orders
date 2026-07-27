@@ -57,8 +57,8 @@ function WorkOrderCard({ order, locale, onOpen }: { order: Order; locale: Locale
         <span className="card-topline"><span>{order.work_order_number}</span><span>{formatDistanceToNow(new Date(order.updated_at), { addSuffix: true, locale: dateLocale })}</span></span>
         <strong>{order.title}</strong>
         <span className="card-location"><MapPin size={15} /> {order.building} · {order.room_or_area}</span>
-        <span className="card-progress-heading"><span>{progress.label}</span><strong>{progress.percent}%</strong></span>
-        <span className="card-progress-track" aria-label={`${progress.label}, ${progress.percent}%`}><span style={{ width: `${progress.percent}%` }} /></span>
+        <span className="card-progress-heading"><span>{progress.label}</span>{progress.sublabel && <strong>{progress.sublabel}</strong>}</span>
+        <span className="card-progress-track" aria-label={progress.sublabel ? `${progress.label}: ${progress.sublabel}` : progress.label}><span style={{ width: `${progress.percent}%` }} /></span>
         <span className="card-statuses">
           {order.condition === 'BLOCKED' && <StatusPill tone="red"><ShieldAlert size={13} /> {t('blockedStatus')}</StatusPill>}
           {order.condition === 'AT_RISK' && <StatusPill tone="gold"><AlertTriangle size={13} /> {t('needsAttention')}</StatusPill>}
@@ -107,18 +107,20 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const isPic = order.assignees.some((person) => person.id === currentUser.id);
   const isWorker = order.workers.some((person) => person.id === currentUser.id);
-  const workerCanProgress = currentUser.roles.includes('WORKER') && isWorker && order.status === 'ACTIVE' && order.work_type === 'INTERNAL' && order.workflow_stage === 'IN_PROGRESS';
+  const workerCanProgress = currentUser.roles.includes('WORKER') && isWorker && order.status === 'ACTIVE' && order.work_type === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(order.workflow_stage);
   const canProgress = order.status === 'ACTIVE' && (isManager || isPic || workerCanProgress);
   const canChangeCondition = order.status === 'ACTIVE' && (isManager || isPic);
   const canManageParticipants = isManager || order.assignees.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id;
   const canComment = isManager || isPic || isWorker || order.reviewer_id === currentUser.id || order.overseers.some((person) => person.id === currentUser.id);
   const canReopen = order.status === 'COMPLETED' && isManager;
+  const hasUnresolvedInternalProcurement = order.work_type === 'INTERNAL' && Boolean(order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status));
   const isStructuredVendorStage = order.work_type === 'VENDOR' && ['PLANNED', 'FINDING_VENDOR', 'PROPOSAL'].includes(order.workflow_stage);
   const isProposalApproval = order.work_type === 'VENDOR' && order.workflow_stage === 'APPROVAL';
   const canDecideProposal = isManager && !order.assignees.some((person) => person.id === currentUser.id);
   const audits = order.audits;
   const progress = getProjectProgress(order, locale);
-  const projectPhases = getProjectPhases(locale);
+  const projectPhases = [...getProjectPhases(locale, order.work_type)];
+  if (progress.sublabel && order.work_type === 'INTERNAL') projectPhases[1] = progress.label ?? projectPhases[1] ?? (locale === 'id' ? 'Pengadaan' : 'Procuring');
   const progressActionLabel = getProgressActionLabel(order, isManager, locale);
   const deleteWorkOrder = async () => {
     setDeleting(true);
@@ -132,8 +134,8 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
       <header className="drawer-header"><div><span>{order.work_order_number}</span><h2 id="drawer-title">{order.title}</h2></div><button className="icon-button" onClick={onClose} aria-label={t('close')}><X /></button></header>
       <div className="drawer-content">
         <div className="detail-status"><StatusPill tone="navy">{progress.label}</StatusPill><StatusPill tone={order.priority === 'CRITICAL' ? 'red' : 'gold'}>{order.priority}</StatusPill>{order.condition === 'BLOCKED' && <StatusPill tone="red"><ShieldAlert size={13} /> {t('blockedStatus')}</StatusPill>}{order.condition === 'AT_RISK' && <StatusPill tone="gold"><AlertTriangle size={13} /> {t('needsAttention')}</StatusPill>}{order.condition === 'ON_TRACK' && <StatusPill tone="sage"><CheckCircle2 size={13} /> {t('onTrackStatus')}</StatusPill>}{order.deadlineGroup === 'OVERDUE' && <StatusPill tone="red"><Clock3 size={13} /> {t('overdueStatus')}</StatusPill>}</div>
-        <section className="project-progress-summary" aria-label={`${t('projectProgress')}: ${progress.percent}%`}>
-          <header><div><span>{t('projectProgress')}</span><strong>{progress.label}</strong></div><b>{progress.percent}%</b></header>
+        <section className="project-progress-summary" aria-label={`${t('projectProgress')}: ${progress.label}`}>
+          <header><div><span>{t('projectProgress')}</span><strong>{progress.label}</strong>{progress.sublabel && <small>{progress.sublabel}</small>}</div></header>
           <div className="project-progress-track"><span style={{ width: `${progress.percent}%` }} /></div>
           <ol>{projectPhases.map((phase, index) => <li key={phase} className={index < progress.phaseIndex ? 'complete' : index === progress.phaseIndex ? 'current' : ''}><span>{index < progress.phaseIndex ? <CheckCircle2 /> : index + 1}</span><small>{phase}</small></li>)}</ol>
           <p>{progress.detail}</p>
@@ -165,7 +167,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
         }) : <p className="muted">{t('noUpdates')}</p>}</section>
         {isManager && <details className="audit-details"><summary>Technical audit history ({audits?.length ?? 0})</summary>{audits?.length ? audits.map((audit: any) => <article className="timeline-item" key={audit.id}><span className="timeline-dot" /><div><strong>{String(audit.event_type).replaceAll('_', ' ')}</strong>{audit.reason && <p>{audit.reason}</p>}<small>{audit.author ?? 'System'} · {formatDistanceToNow(new Date(audit.created_at), { addSuffix: true, locale: dateLocale })}</small></div></article>) : <p className="muted">No audit events recorded.</p>}</details>}
       </div>
-      <footer className="drawer-actions">{currentUser.roles.includes('ADMINISTRATOR') && <button className="secondary-button delete-work-order-button" onClick={() => { setDeleteError(''); setConfirmingDelete(true); }}><Trash2 /> {locale === 'id' ? 'Hapus pekerjaan' : 'Delete work order'}</button>}{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>{locale === 'id' ? 'Laporkan masalah' : 'Report issue'}</button>}{isManager && <button className="secondary-button" onClick={() => setAction('due-date')}>{locale === 'id' ? 'Ubah tanggal tenggat' : 'Change due date'}</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
+      <footer className="drawer-actions">{currentUser.roles.includes('ADMINISTRATOR') && <button className="secondary-button delete-work-order-button" onClick={() => { setDeleteError(''); setConfirmingDelete(true); }}><Trash2 /> {locale === 'id' ? 'Hapus pekerjaan' : 'Delete work order'}</button>}{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>{locale === 'id' ? 'Laporkan masalah' : 'Report issue'}</button>}{isManager && <button className="secondary-button" onClick={() => setAction('due-date')}>{locale === 'id' ? 'Ubah tanggal tenggat' : 'Change due date'}</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && !hasUnresolvedInternalProcurement && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
       {action === 'workflow' && <WorkflowActionForm order={order as WorkOrder} currentUser={currentUser} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'vendor' && <VendorActionForm order={order} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'proposal-decision' && <ProposalDecisionForm order={order} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}

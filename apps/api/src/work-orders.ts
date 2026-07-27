@@ -37,6 +37,8 @@ const progressUpdateSchema = z.object({
   attachmentIds: z.array(z.string().uuid()).max(20).default([]),
 });
 
+const completionSubmissionSchema = progressUpdateSchema;
+
 const prioritySchema = z.object({
   priority: z.enum(['CRITICAL', 'HIGH', 'NORMAL', 'LOW']),
   reason: z.string().trim().min(3).max(1000),
@@ -105,7 +107,7 @@ export function canDecideProposal(approverId: string, picIds: readonly string[])
 }
 
 export function canRecordMidProgress(status: string, stage: WorkflowStage): boolean {
-  return status === 'ACTIVE' && stage === 'IN_PROGRESS';
+  return status === 'ACTIVE' && ['SCHEDULED', 'IN_PROGRESS'].includes(stage);
 }
 
 async function isWorkOrderPic(workOrderId: string, userId: string): Promise<boolean> {
@@ -573,11 +575,11 @@ export async function workOrderRoutes(app: FastifyInstance) {
       const rows = await transaction<Array<{ id: string }>>`
         insert into work_orders (
           work_order_number, title, description, category, campus_id, building_id, location_option_id, floor,
-          room_or_area, work_type, priority, due_date, planned_start_date,
+          room_or_area, work_type, priority, due_date, planned_start_date, workflow_stage,
           execution_window, execution_window_note, primary_assignee_id, reviewer_id, created_by_id
         ) values (
           ${number}, ${input.title}, ${input.description}, ${input.category}, ${input.campusId}, ${input.buildingId}, ${input.locationOptionId ?? null}, ${locationSnapshot.floor},
-          ${locationSnapshot.roomOrArea}, ${input.workType}, ${input.priority}, ${input.dueDate}, ${input.plannedStartDate ?? null},
+          ${locationSnapshot.roomOrArea}, ${input.workType}, ${input.priority}, ${input.dueDate}, ${input.plannedStartDate ?? null}, ${input.workType === 'INTERNAL' && !input.procurementRequired ? 'SCHEDULED' : 'PLANNED'},
           ${input.executionWindow}, ${input.executionWindowNote ?? null}, ${input.assigneeIds[0]!}, ${input.reviewerId ?? null}, ${request.currentUser.id}
         ) returning id
       `;
@@ -598,11 +600,17 @@ export async function workOrderRoutes(app: FastifyInstance) {
         from unnest(${input.overseerIds}::uuid[]) participant(user_id)
       `;
       if (input.workType === 'INTERNAL') await transaction`
-        insert into internal_procurement_proposals (work_order_id) values (${id})
+        insert into internal_procurement_proposals (work_order_id, status, requirement_note)
+        values (${id}, ${input.procurementRequired ? 'PROPOSAL_REQUIRED' : 'NOT_REQUIRED'}, ${input.procurementRequired ? input.procurementRequirementNote ?? null : null})
       `;
+      const initialStage = input.workType === 'INTERNAL' && !input.procurementRequired ? 'SCHEDULED' : 'PLANNED';
       await transaction`
         insert into progress_updates (work_order_id, update_type, new_stage, note, structured_data, created_by)
-        values (${id}, 'STAGE_TRANSITION', 'PLANNED', ${input.planSummary}, ${transaction.json({ planSummary: input.planSummary })}, ${request.currentUser.id})
+        values (${id}, 'STAGE_TRANSITION', ${initialStage}, ${input.planSummary}, ${transaction.json({ planSummary: input.planSummary, procurementRequired: input.procurementRequired, procurementRequirementNote: input.procurementRequirementNote })}, ${request.currentUser.id})
+      `;
+      if (input.workType === 'INTERNAL' && input.procurementRequired) await transaction`
+        insert into progress_updates (work_order_id, update_type, previous_stage, new_stage, note, structured_data, created_by)
+        values (${id}, 'PROCUREMENT_REQUIRED', 'PLANNED', 'PLANNED', ${input.procurementRequirementNote!}, ${transaction.json({ status: 'PROPOSAL_REQUIRED' })}, ${request.currentUser.id})
       `;
       await transaction`
         insert into audit_events (work_order_id, user_id, event_type, new_data, correlation_id)
@@ -663,7 +671,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (workOrder.version !== input.expectedVersion) return reply.code(409).send({ error: { code: 'VERSION_CONFLICT', message: 'Reload the work order before uploading.', requestId: request.id } });
     const assignedPic = await isWorkOrderPic(id, request.currentUser.id);
     const assignedWorker = await isAssignedWorker(id, request.currentUser.id);
-    const workerMayUpload = attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS' && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
+    const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
     if (!isManager(request.currentUser.roles) && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
     if (attachmentContext === 'INTERNAL_PROCUREMENT' && workOrder.work_type !== 'INTERNAL') return reply.code(422).send({ error: { code: 'INTERNAL_WORK_REQUIRED', message: 'Internal procurement attachments require internal work.', requestId: request.id } });
     if (attachmentContext === 'VENDOR_PROPOSAL' && workOrder.work_type !== 'VENDOR') return reply.code(422).send({ error: { code: 'VENDOR_WORK_REQUIRED', message: 'Vendor proposal attachments require vendor work.', requestId: request.id } });
@@ -721,7 +729,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (workOrder.version !== input.expectedVersion) return reply.code(409).send({ error: { code: 'VERSION_CONFLICT', message: 'Reload the work order before adding evidence.', requestId: request.id } });
     const assignedPic = await isWorkOrderPic(id, request.currentUser.id);
     const assignedWorker = await isAssignedWorker(id, request.currentUser.id);
-    const workerMayUpload = attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS' && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
+    const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
     if (!isManager(request.currentUser.roles) && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
     if (attachmentContext === 'INTERNAL_PROCUREMENT' && workOrder.work_type !== 'INTERNAL') return reply.code(422).send({ error: { code: 'INTERNAL_WORK_REQUIRED', message: 'Internal procurement attachments require internal work.', requestId: request.id } });
     if (attachmentContext === 'VENDOR_PROPOSAL' && workOrder.work_type !== 'VENDOR') return reply.code(422).send({ error: { code: 'VENDOR_WORK_REQUIRED', message: 'Vendor proposal attachments require vendor work.', requestId: request.id } });
@@ -1279,19 +1287,19 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = requireProcurementSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
-      const rows = await transaction<Array<{ version: number; status: string; work_type: WorkType; procurement_status: InternalProcurementStatus; procurement_version: number }>>`
-        select wo.version, wo.status, wo.work_type, procurement.status as procurement_status, procurement.version as procurement_version
+      const rows = await transaction<Array<{ version: number; status: string; work_type: WorkType; workflow_stage: WorkflowStage; procurement_status: InternalProcurementStatus; procurement_version: number }>>`
+        select wo.version, wo.status, wo.work_type, wo.workflow_stage, procurement.status as procurement_status, procurement.version as procurement_version
         from work_orders wo join internal_procurement_proposals procurement on procurement.work_order_id = wo.id
         where wo.id = ${id} for update of wo, procurement
       `;
       const workOrder = rows[0];
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion || workOrder.procurement_version !== input.expectedProcurementVersion) return { error: 'VERSION_CONFLICT' } as const;
-      if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL') return { error: 'INTERNAL_ACTIVE_WORK_REQUIRED' } as const;
+      if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || !['PLANNED', 'SCHEDULED'].includes(workOrder.workflow_stage)) return { error: 'INTERNAL_ACTIVE_WORK_REQUIRED' } as const;
       if (!isManager(request.currentUser.roles) && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
       if (!canTransitionProcurement(workOrder.procurement_status, 'PROPOSAL_REQUIRED')) return { error: 'INVALID_PROCUREMENT_TRANSITION' } as const;
       await transaction`update internal_procurement_proposals set status = 'PROPOSAL_REQUIRED', requirement_note = ${input.requirementNote}, submitted_by = null, submitted_at = null, decided_by = null, decided_at = null, decision_note = null, version = version + 1, updated_at = now() where work_order_id = ${id}`;
-      await transaction`update work_orders set version = version + 1, updated_at = now() where id = ${id}`;
+      await transaction`update work_orders set workflow_stage = 'PLANNED', version = version + 1, updated_at = now() where id = ${id}`;
       await transaction`insert into progress_updates (work_order_id, update_type, note, structured_data, created_by) values (${id}, 'PROCUREMENT_REQUIRED', ${input.requirementNote}, ${transaction.json({ previousStatus: workOrder.procurement_status, status: 'PROPOSAL_REQUIRED' })}, ${request.currentUser.id})`;
       await transaction`insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, correlation_id) values (${id}, ${request.currentUser.id}, 'PROCUREMENT_REQUIRED', ${transaction.json({ status: workOrder.procurement_status })}, ${transaction.json({ status: 'PROPOSAL_REQUIRED', requirementNote: input.requirementNote })}, ${request.id})`;
       return { status: 'PROPOSAL_REQUIRED', version: workOrder.version + 1, procurementVersion: workOrder.procurement_version + 1 } as const;
@@ -1367,9 +1375,10 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (workOrder.version !== input.expectedVersion || workOrder.procurement_version !== input.expectedProcurementVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || !canTransitionProcurement(workOrder.procurement_status, input.decision)) return { error: 'INVALID_PROCUREMENT_TRANSITION' } as const;
       await transaction`update internal_procurement_proposals set status = ${input.decision}, decided_by = ${request.currentUser.id}, decided_at = now(), decision_note = ${input.decisionNote}, version = version + 1, updated_at = now() where work_order_id = ${id}`;
-      await transaction`update work_orders set version = version + 1, updated_at = now() where id = ${id}`;
+      const nextStage = input.decision === 'APPROVED' ? 'SCHEDULED' : 'PLANNED';
+      await transaction`update work_orders set workflow_stage = ${nextStage}, version = version + 1, updated_at = now() where id = ${id}`;
 
-      await transaction`insert into progress_updates (work_order_id, update_type, note, structured_data, created_by) values (${id}, ${`PROCUREMENT_PROPOSAL_${input.decision}`}, ${input.decisionNote}, ${transaction.json({ previousStatus: workOrder.procurement_status, status: input.decision })}, ${request.currentUser.id})`;
+      await transaction`insert into progress_updates (work_order_id, update_type, previous_stage, new_stage, note, structured_data, created_by) values (${id}, ${`PROCUREMENT_PROPOSAL_${input.decision}`}, 'PLANNED', ${nextStage}, ${input.decisionNote}, ${transaction.json({ previousStatus: workOrder.procurement_status, status: input.decision })}, ${request.currentUser.id})`;
       await transaction`insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, reason, correlation_id) values (${id}, ${request.currentUser.id}, ${`PROCUREMENT_PROPOSAL_${input.decision}`}, ${transaction.json({ status: workOrder.procurement_status })}, ${transaction.json({ status: input.decision })}, ${input.decisionNote}, ${request.id})`;
       await transaction`insert into notifications (recipient_user_id, work_order_id, type, title, message) select recipients.user_id, ${id}, ${`PROCUREMENT_PROPOSAL_${input.decision}`}, wo.work_order_number || ': procurement ' || lower(${input.decision}), ${input.decisionNote} from work_orders wo cross join lateral (select user_id from work_order_assignees where work_order_id = ${id} union select user_id from work_order_workers where work_order_id = ${id} union select reviewer_id from work_orders where id = ${id} and reviewer_id is not null union select user_id from work_order_overseers where work_order_id = ${id}) recipients where wo.id = ${id} and recipients.user_id <> ${request.currentUser.id} on conflict do nothing`;
       return { status: input.decision, version: workOrder.version + 1, procurementVersion: workOrder.procurement_version + 1 } as const;
@@ -1394,7 +1403,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       const assignedPic = Boolean((await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length);
       if (!isManager(request.currentUser.roles) && !assignedPic) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
       await transaction`update internal_procurement_proposals set status = 'NOT_REQUIRED', requirement_note = null, submitted_by = null, submitted_at = null, decided_by = null, decided_at = null, decision_note = null, version = version + 1, updated_at = now() where work_order_id = ${id}`;
-      await transaction`update work_orders set version = version + 1, updated_at = now() where id = ${id}`;
+      await transaction`update work_orders set workflow_stage = case when workflow_stage = 'PLANNED' then 'SCHEDULED' else workflow_stage end, version = version + 1, updated_at = now() where id = ${id}`;
       await transaction`insert into progress_updates (work_order_id, update_type, note, structured_data, created_by) values (${id}, 'PROCUREMENT_NO_LONGER_REQUIRED', ${input.reason}, ${transaction.json({ previousStatus: workOrder.procurement_status, status: 'NOT_REQUIRED' })}, ${request.currentUser.id})`;
       await transaction`insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, reason, correlation_id) values (${id}, ${request.currentUser.id}, 'PROCUREMENT_NO_LONGER_REQUIRED', ${transaction.json({ status: workOrder.procurement_status })}, ${transaction.json({ status: 'NOT_REQUIRED' })}, ${input.reason}, ${request.id})`;
       return { status: 'NOT_REQUIRED', version: workOrder.version + 1, procurementVersion: workOrder.procurement_version + 1 } as const;
@@ -1424,7 +1433,8 @@ export async function workOrderRoutes(app: FastifyInstance) {
       ` : [];
       if (linkedAttachments.length !== input.attachmentIds.length) return { error: 'INVALID_ATTACHMENT' } as const;
       if (input.attachmentIds.length) await transaction`update attachments set status = 'ATTACHED', attached_at = now(), pending_action_token = null where id = any(${input.attachmentIds}::uuid[])`;
-      await transaction`update work_orders set version = version + 1, updated_at = now() where id = ${id}`;
+      const nextStage = workOrder.workflow_stage === 'SCHEDULED' ? 'IN_PROGRESS' : workOrder.workflow_stage;
+      await transaction`update work_orders set workflow_stage = ${nextStage}, version = version + 1, updated_at = now() where id = ${id}`;
       if (input.attachmentIds.length) await transaction`
         delete from progress_updates
         where work_order_id = ${id} and update_type = 'FILE_EVIDENCE_ADDED' and created_by = ${request.currentUser.id}
@@ -1432,17 +1442,77 @@ export async function workOrderRoutes(app: FastifyInstance) {
       `;
       await transaction`
         insert into progress_updates (work_order_id, update_type, previous_stage, new_stage, note, structured_data, created_by)
-        values (${id}, 'PROGRESS_UPDATE', 'IN_PROGRESS', 'IN_PROGRESS', ${input.note}, ${transaction.json({ attachmentIds: input.attachmentIds })}, ${request.currentUser.id})
+        values (${id}, 'PROGRESS_UPDATE', ${workOrder.workflow_stage}, ${nextStage}, ${input.note}, ${transaction.json({ attachmentIds: input.attachmentIds })}, ${request.currentUser.id})
       `;
       await transaction`
         insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, correlation_id)
-        values (${id}, ${request.currentUser.id}, 'WORK_PROGRESS_UPDATED', ${transaction.json({ stage: 'IN_PROGRESS' })}, ${transaction.json({ stage: 'IN_PROGRESS', attachmentIds: input.attachmentIds })}, ${request.id})
+        values (${id}, ${request.currentUser.id}, 'WORK_PROGRESS_UPDATED', ${transaction.json({ stage: workOrder.workflow_stage })}, ${transaction.json({ stage: nextStage, attachmentIds: input.attachmentIds })}, ${request.id})
       `;
       return { version: workOrder.version + 1 } as const;
     });
     if ('error' in result) {
       const status = result.error === 'NOT_FOUND' ? 404 : result.error === 'VERSION_CONFLICT' ? 409 : result.error === 'NOT_ASSIGNED' ? 403 : 422;
       return reply.code(status).send({ error: { code: result.error, message: 'The progress update could not be recorded.', requestId: request.id } });
+    }
+    return { data: result };
+  });
+
+  app.post('/work-orders/:id/submit-completion', async (request, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
+    const input = completionSubmissionSchema.parse(request.body);
+    const result = await sql.begin(async (transaction) => {
+      const rows = await transaction<Array<{ id: string; work_order_number: string; title: string; version: number; status: string; work_type: WorkType; workflow_stage: WorkflowStage; reviewer_id: string | null; procurement_status: InternalProcurementStatus | null }>>`
+        select wo.id, wo.work_order_number, wo.title, wo.version, wo.status, wo.work_type, wo.workflow_stage, wo.reviewer_id,
+          procurement.status as procurement_status
+        from work_orders wo left join internal_procurement_proposals procurement on procurement.work_order_id = wo.id
+        where wo.id = ${id} for update of wo
+      `;
+      const workOrder = rows[0];
+      if (!workOrder) return { error: 'NOT_FOUND' } as const;
+      if (workOrder.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
+      if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || workOrder.workflow_stage !== 'IN_PROGRESS') return { error: 'INVALID_PROGRESS_STAGE' } as const;
+      const assignedPic = Boolean((await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
+      const assignedWorker = Boolean((await transaction`select 1 from work_order_workers where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
+      if (!isManager(request.currentUser.roles) && !assignedPic && !assignedWorker) return { error: 'NOT_ASSIGNED' } as const;
+      if (workOrder.procurement_status && !['NOT_REQUIRED', 'APPROVED'].includes(workOrder.procurement_status)) return { error: 'PROCUREMENT_UNRESOLVED' } as const;
+      const linkedAttachments = input.attachmentIds.length ? await transaction<Array<{ id: string }>>`
+        select id from attachments
+        where work_order_id = ${id} and uploaded_by = ${request.currentUser.id} and removed_at is null and status in ('PENDING', 'ATTACHED')
+          and evidence_type = 'COMPLETION' and attachment_context = 'COMPLETION' and id = any(${input.attachmentIds}::uuid[])
+      ` : [];
+      if (linkedAttachments.length !== input.attachmentIds.length) return { error: 'INVALID_ATTACHMENT' } as const;
+      if (input.attachmentIds.length) await transaction`update attachments set status = 'ATTACHED', attached_at = now(), pending_action_token = null where id = any(${input.attachmentIds}::uuid[])`;
+      const completionEvidence = await transaction<Array<{ mime_type: string }>>`
+        select mime_type from attachments where work_order_id = ${id} and evidence_type = 'COMPLETION' and status = 'ATTACHED' and removed_at is null
+      `;
+      if (!completionEvidence.some((attachment) => isCompletionPhoto(attachment.mime_type))) return { error: 'COMPLETION_EVIDENCE_REQUIRED' } as const;
+      if (input.attachmentIds.length) await transaction`
+        delete from progress_updates
+        where work_order_id = ${id} and update_type = 'FILE_EVIDENCE_ADDED' and created_by = ${request.currentUser.id}
+          and structured_data->>'attachmentId' = any(${input.attachmentIds}::text[])
+      `;
+      await transaction`update work_orders set workflow_stage = 'REVIEW', version = version + 1, updated_at = now() where id = ${id}`;
+      await transaction`
+        insert into progress_updates (work_order_id, update_type, previous_stage, new_stage, note, structured_data, created_by)
+        values (${id}, 'REVIEW_SUBMISSION', 'IN_PROGRESS', 'REVIEW', ${input.note}, ${transaction.json({ completionSummary: input.note, attachmentIds: input.attachmentIds })}, ${request.currentUser.id})
+      `;
+      await transaction`
+        insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, correlation_id)
+        values (${id}, ${request.currentUser.id}, 'WORKFLOW_STAGE_CHANGED', ${transaction.json({ stage: 'IN_PROGRESS' })}, ${transaction.json({ stage: 'REVIEW' })}, ${request.id})
+      `;
+      await transaction`
+        insert into notifications (recipient_user_id, work_order_id, type, title, message)
+        select recipients.user_id, ${id}, 'COMPLETION_REVIEW_SUBMITTED', ${`${workOrder.work_order_number}: completion review submitted`}, ${`${workOrder.title}: ${input.note}`}
+        from (
+          select ${workOrder.reviewer_id}::uuid as user_id where ${workOrder.reviewer_id}::uuid is not null
+          union select ur.user_id from user_roles ur where ur.role in ('ADMINISTRATOR', 'FACILITIES_MANAGER')
+        ) recipients where recipients.user_id <> ${request.currentUser.id}
+      `;
+      return { version: workOrder.version + 1 } as const;
+    });
+    if ('error' in result) {
+      const status = result.error === 'NOT_FOUND' ? 404 : result.error === 'VERSION_CONFLICT' ? 409 : result.error === 'NOT_ASSIGNED' ? 403 : 422;
+      return reply.code(status).send({ error: { code: result.error, message: 'The work could not be submitted for completion review.', requestId: request.id } });
     }
     return { data: result };
   });
@@ -1467,6 +1537,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       `;
       const hasProposalEvidence = evidence.some((attachment) => attachment.evidence_type === 'PROPOSAL');
       const hasCompletionEvidence = evidence.some((attachment) => attachment.evidence_type === 'COMPLETION' && isCompletionPhoto(attachment.mime_type));
+      if (workOrder.work_type === 'INTERNAL' && input.toStage === 'SCHEDULED' && workOrder.procurement_status && !['NOT_REQUIRED', 'APPROVED'].includes(workOrder.procurement_status)) return { error: 'PROCUREMENT_UNRESOLVED' } as const;
       const linkedAttachments = input.attachmentIds.length ? await transaction<Array<{ id: string }>>`
         select id from attachments
         where work_order_id = ${id} and uploaded_by = ${request.currentUser.id} and removed_at is null and status in ('PENDING', 'ATTACHED')
