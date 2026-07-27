@@ -284,10 +284,14 @@ interface WorkflowFormProps {
   currentUser: CurrentUser;
   onClose: () => void;
   onChanged: () => Promise<void> | void;
+  locale?: Locale;
   initialAction?: 'forward' | 'reject' | 'reopen';
 }
 
-export function ConditionActionForm({ order, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'>) {
+export function ConditionActionForm({ order, locale, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'> & { locale: Locale }) {
+  const copy = locale === 'id'
+    ? { title: 'Laporkan masalah', section: 'Kondisi proyek', intro: 'Sampaikan kepada tim hanya informasi yang diperlukan untuk memahami masalah.', attention: 'Perlu perhatian', blocked: 'Tidak dapat dilanjutkan', resolved: 'Masalah terselesaikan', blockerCategory: 'Kategori hambatan', happening: 'Apa yang terjadi?', impact: 'Jelaskan secara singkat masalah dan dampaknya.', resolutionDate: 'Perkiraan tanggal penyelesaian', resolvedHow: 'Bagaimana masalah ini diselesaikan?', saving: 'Menyimpan...', resolve: 'Selesaikan kondisi', mark: 'Tandai' }
+    : { title: 'Report an issue', section: 'Project condition', intro: 'Tell the team only what they need to know to understand the issue.', attention: 'Needs attention', blocked: 'Cannot continue', resolved: 'Issue resolved', blockerCategory: 'Blocker category', happening: 'What is happening?', impact: 'Briefly explain the issue and its likely impact.', resolutionDate: 'Expected resolution date', resolvedHow: 'How was the issue resolved?', saving: 'Saving...', resolve: 'Resolve condition', mark: 'Mark' };
   const [condition, setCondition] = useState<TaskCondition>(order.condition === 'ON_TRACK' ? 'AT_RISK' : 'ON_TRACK');
   const [explanation, setExplanation] = useState('');
   const [expectedImpact, setExpectedImpact] = useState('');
@@ -306,27 +310,31 @@ export function ConditionActionForm({ order, onClose, onChanged }: Omit<Workflow
           : { condition, resolutionNote, expectedVersion: order.version };
       await api(`/work-orders/${order.id}/condition`, { method: 'POST', body: JSON.stringify(body) });
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Condition could not be changed.'); } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Kondisi tidak dapat diubah.' : 'Condition could not be changed.')); } finally { setSubmitting(false); }
   };
   return <form className="action-panel" onSubmit={submit}>
-    <header><div><span>Project condition</span><h3>Report an issue</h3><p className="action-intro">Tell the team only what they need to know to understand the issue.</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
+    <header><div><span>{copy.section}</span><h3>{copy.title}</h3><p className="action-intro">{copy.intro}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
     <div className="segmented-control">
-      {order.condition !== 'AT_RISK' && <button type="button" className={condition === 'AT_RISK' ? 'active' : ''} onClick={() => setCondition('AT_RISK')}>Needs attention</button>}
-      {order.condition !== 'BLOCKED' && <button type="button" className={condition === 'BLOCKED' ? 'active' : ''} onClick={() => setCondition('BLOCKED')}>Cannot continue</button>}
-      {order.condition !== 'ON_TRACK' && <button type="button" className={condition === 'ON_TRACK' ? 'active' : ''} onClick={() => setCondition('ON_TRACK')}>Issue resolved</button>}
+      {order.condition !== 'AT_RISK' && <button type="button" className={condition === 'AT_RISK' ? 'active' : ''} onClick={() => setCondition('AT_RISK')}>{copy.attention}</button>}
+      {order.condition !== 'BLOCKED' && <button type="button" className={condition === 'BLOCKED' ? 'active' : ''} onClick={() => setCondition('BLOCKED')}>{copy.blocked}</button>}
+      {order.condition !== 'ON_TRACK' && <button type="button" className={condition === 'ON_TRACK' ? 'active' : ''} onClick={() => setCondition('ON_TRACK')}>{copy.resolved}</button>}
     </div>
     <div className="form-grid compact">
-      {condition === 'BLOCKED' && <Field label="Blocker category" required><select value={blockerCategory} onChange={(event) => setBlockerCategory(event.target.value as typeof blockerCategory)}>{blockerCategories.map((category) => <option key={category} value={category}>{category.replaceAll('_', ' ')}</option>)}</select></Field>}
-      {(condition === 'AT_RISK' || condition === 'BLOCKED') && <Field label="What is happening?" required hint="Briefly explain the issue and its likely impact."><textarea rows={4} value={explanation} onChange={(event) => { setExplanation(event.target.value); setExpectedImpact(event.target.value); }} minLength={3} required /></Field>}
-      {condition === 'BLOCKED' && <Field label="Expected resolution date" required><input type="date" value={expectedResolutionDate} onChange={(event) => setExpectedResolutionDate(event.target.value)} required /></Field>}
-      {condition === 'ON_TRACK' && <Field label="How was the issue resolved?" required><textarea rows={4} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} minLength={3} required /></Field>}
+      {condition === 'BLOCKED' && <Field label={copy.blockerCategory} required><select value={blockerCategory} onChange={(event) => setBlockerCategory(event.target.value as typeof blockerCategory)}>{blockerCategories.map((category) => <option key={category} value={category}>{category.replaceAll('_', ' ')}</option>)}</select></Field>}
+      {(condition === 'AT_RISK' || condition === 'BLOCKED') && <Field label={copy.happening} required hint={copy.impact}><textarea rows={4} value={explanation} onChange={(event) => { setExplanation(event.target.value); setExpectedImpact(event.target.value); }} minLength={3} required /></Field>}
+      {condition === 'BLOCKED' && <Field label={copy.resolutionDate} required><input type="date" value={expectedResolutionDate} onChange={(event) => setExpectedResolutionDate(event.target.value)} required /></Field>}
+      {condition === 'ON_TRACK' && <Field label={copy.resolvedHow} required><textarea rows={4} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} minLength={3} required /></Field>}
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting}>{submitting ? 'Saving...' : condition === 'ON_TRACK' ? 'Resolve condition' : `Mark ${condition.replaceAll('_', ' ').toLowerCase()}`}</button></footer>
+    <footer><button className="primary-button" disabled={submitting}>{submitting ? copy.saving : condition === 'ON_TRACK' ? copy.resolve : `${copy.mark} ${condition.replaceAll('_', ' ').toLowerCase()}`}</button></footer>
   </form>;
 }
 
-export function DueDateActionForm({ order, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'>) {
+export function DueDateActionForm({ order, locale, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'> & { locale: Locale }) {
+  const copy = locale === 'id'
+    ? { newDate: 'Tanggal tenggat baru', reason: 'Alasan perubahan', saving: 'Menyimpan...', change: 'Ubah tanggal tenggat' }
+    : { newDate: 'New due date', reason: 'Reason for change', saving: 'Saving...', change: 'Change due date' };
+  const t = translator(locale);
   const [dueDate, setDueDate] = useState(order.due_date);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
@@ -336,16 +344,16 @@ export function DueDateActionForm({ order, onClose, onChanged }: Omit<WorkflowFo
     try {
       await api(`/work-orders/${order.id}/due-date`, { method: 'PATCH', body: JSON.stringify({ dueDate, reason, expectedVersion: order.version }) });
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Due date could not be changed.'); } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Tanggal tenggat tidak dapat diubah.' : 'Due date could not be changed.')); } finally { setSubmitting(false); }
   };
   return <form className="action-panel" onSubmit={submit}>
-    <header><div><span>Manager action</span><h3>Change due date</h3></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
+    <header><div><span>{t('managerAction')}</span><h3>{copy.change}</h3></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
     <div className="form-grid compact">
-      <Field label="New due date" required><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></Field>
-      <Field label="Reason for change" required><textarea rows={4} value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} required /></Field>
+      <Field label={copy.newDate} required><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} required /></Field>
+      <Field label={copy.reason} required><textarea rows={4} value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} required /></Field>
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting || dueDate === order.due_date}>{submitting ? 'Saving...' : 'Change due date'}</button></footer>
+    <footer><button className="primary-button" disabled={submitting || dueDate === order.due_date}>{submitting ? copy.saving : copy.change}</button></footer>
   </form>;
 }
 
@@ -462,7 +470,10 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
   </section>;
 }
 
-export function WorkflowActionForm({ order, currentUser, onClose, onChanged, initialAction }: WorkflowFormProps) {
+export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose, onChanged, initialAction }: WorkflowFormProps) {
+  const copy = locale === 'id'
+    ? { reopenCompleted: 'Buka kembali pekerjaan selesai', finalCheck: 'Selesaikan pemeriksaan akhir', updateProgress: 'Perbarui progres proyek', progressIntro: 'Catat pembaruan yang sedang berjalan atau tandai pekerjaan sebagai selesai untuk dikirimkan ke pemeriksaan.', updateIntro: 'Tambahkan pembaruan singkat dan jelas. Woko akan memindahkan proyek ke tahap berikutnya yang dapat dilacak.', progressUpdate: 'Pembaruan progres', workCompleted: 'Pekerjaan selesai', approve: 'Setujui', reject: 'Tolak', reopen: 'Buka kembali', startDate: 'Kapan pekerjaan dimulai?', reason: 'Alasan', finalCheckNote: 'Catatan pemeriksaan akhir', completionNote: 'Catatan penyelesaian', shortUpdate: 'Pembaruan singkat', progressEvidence: 'Bukti progres', saving: 'Menyimpan...', rejectToProgress: 'Tolak kembali ke Dikerjakan', reopenWork: 'Buka kembali pekerjaan', saveProgress: 'Simpan pembaruan progres', markCompleted: 'Tandai pekerjaan selesai', approveCompletion: 'Setujui penyelesaian', confirmProgress: 'Konfirmasi progres' }
+    : { reopenCompleted: 'Reopen completed work', finalCheck: 'Complete the final check', updateProgress: 'Update project progress', progressIntro: 'Record an ongoing update or mark the work as completed and send it for review.', updateIntro: 'Add a short, clear update. Woko will move the project to its next trackable phase.', progressUpdate: 'Progress update', workCompleted: 'Work completed', approve: 'Approve', reject: 'Reject', reopen: 'Reopen', startDate: 'When will work start?', reason: 'Reason', finalCheckNote: 'Final check note', completionNote: 'Completion note', shortUpdate: 'Short update', progressEvidence: 'Progress evidence', saving: 'Saving...', rejectToProgress: 'Reject back to In Progress', reopenWork: 'Reopen work order', saveProgress: 'Save progress update', markCompleted: 'Mark work completed', approveCompletion: 'Approve completion', confirmProgress: 'Confirm progress' };
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const [action, setAction] = useState<'forward' | 'reject' | 'reopen'>(initialAction ?? (order.status === 'COMPLETED' ? 'reopen' : 'forward'));
   const isAssignedWorker = currentUser.roles.includes('WORKER') && order.workers.some((person) => person.id === currentUser.id);
@@ -494,7 +505,7 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
   const hasCompletionPhotoForSubmit = hasCompletionPhoto || selectedCompletionPhoto || uploadedAsCompletion;
   const canAttachProgressImage = action !== 'reopen' && order.drive_provisioning_status === 'COMPLETE';
   const vendorStructuredStage = order.work_type === 'VENDOR' && ['PLANNED', 'FINDING_VENDOR', 'PROPOSAL', 'APPROVAL'].includes(order.workflow_stage);
-  const progress = getProjectProgress(order);
+  const progress = getProjectProgress(order, locale);
   const selectProgressImage = (file: File | null) => {
     setUploadProgress(0);
     if (!file) { setProgressImage(null); return; }
@@ -545,29 +556,29 @@ export function WorkflowActionForm({ order, currentUser, onClose, onChanged, ini
         }
       }
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Action failed.'); } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Tindakan tidak dapat diselesaikan.' : 'Action failed.')); } finally { setSubmitting(false); }
   };
   return <form className="action-panel" onSubmit={submit}>
-    <header><div><span>{progress.label} · {progress.percent}%</span><h3>{canReopen ? 'Reopen completed work' : order.workflow_stage === 'REVIEW' ? 'Complete the final check' : 'Update project progress'}</h3><p className="action-intro">{isInProgressUpdate ? 'Record an ongoing update or mark the work as completed and send it for review.' : 'Add a short, clear update. Woko will move the project to its next trackable phase.'}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
-    {isInProgressUpdate && <div className="segmented-control progress-mode-control"><button type="button" className={progressMode === 'mid' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('mid')}>Progress update</button>{!isAssignedWorker && <button type="button" className={progressMode === 'complete' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('complete')}>Work completed</button>}</div>}
-    {(canReject || canReopen) && <div className="segmented-control">{order.status !== 'COMPLETED' && <button type="button" className={action === 'forward' ? 'active' : ''} onClick={() => setAction('forward')}>Approve</button>}{canReject && <button type="button" className={action === 'reject' ? 'active' : ''} onClick={() => setAction('reject')}>Reject</button>}{canReopen && <button type="button" className={action === 'reopen' ? 'active' : ''} onClick={() => setAction('reopen')}>Reopen</button>}</div>}
+    <header><div><span>{progress.label} · {progress.percent}%</span><h3>{canReopen ? copy.reopenCompleted : order.workflow_stage === 'REVIEW' ? copy.finalCheck : copy.updateProgress}</h3><p className="action-intro">{isInProgressUpdate ? copy.progressIntro : copy.updateIntro}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
+    {isInProgressUpdate && <div className="segmented-control progress-mode-control"><button type="button" className={progressMode === 'mid' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('mid')}>{copy.progressUpdate}</button>{!isAssignedWorker && <button type="button" className={progressMode === 'complete' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('complete')}>{copy.workCompleted}</button>}</div>}
+    {(canReject || canReopen) && <div className="segmented-control">{order.status !== 'COMPLETED' && <button type="button" className={action === 'forward' ? 'active' : ''} onClick={() => setAction('forward')}>{copy.approve}</button>}{canReject && <button type="button" className={action === 'reject' ? 'active' : ''} onClick={() => setAction('reject')}>{copy.reject}</button>}{canReopen && <button type="button" className={action === 'reopen' ? 'active' : ''} onClick={() => setAction('reopen')}>{copy.reopen}</button>}</div>}
     {vendorStructuredStage && !isManager && <p className="form-error">Use the structured vendor action for this stage.</p>}
     <div className="form-grid compact">
-      {targetStage === 'SCHEDULED' && <Field label="When will work start?" required><input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} required /></Field>}
+      {targetStage === 'SCHEDULED' && <Field label={copy.startDate} required><input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} required /></Field>}
 
-      {order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence && <p className="form-error">Add at least one proposal file before submitting for approval.</p>}
-      {targetStage === 'REVIEW' && isManager && order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status) && <Field label="Procurement override reason" required hint="Unresolved procurement blocks review unless a manager documents an override."><textarea rows={3} value={procurementOverrideReason} onChange={(event) => setProcurementOverrideReason(event.target.value)} required /></Field>}
-      {targetStage === 'COMPLETED' && !hasCompletionPhotoForSubmit && <Field label="Manager waiver reason" required hint="A completion photo is required. A Facilities Manager may waive it with a documented reason."><textarea rows={3} value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} required /></Field>}
-      {targetStage === 'COMPLETED' && hasCompletionPhotoForSubmit && <p className="evidence-confirmation"><Check /> {progressImage ? 'The selected image will be attached as completion evidence.' : uploadedAsCompletion ? 'The image was uploaded as completion evidence.' : 'Completion photo evidence is attached.'}</p>}
-      {(action === 'reject' || action === 'reopen') && <Field label="Reason" required><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} required /></Field>}
-      {action !== 'reopen' && <Field label={targetStage === 'COMPLETED' ? 'Final check note' : isMidProgressUpdate ? 'Progress update' : targetStage === 'REVIEW' ? 'Completion note' : 'Short update'} required hint={isMidProgressUpdate ? 'Example: Installation is 60% complete; electrical work continues tomorrow.' : targetStage === 'REVIEW' ? 'Add one note confirming the whole work order is finished and ready for review.' : 'Example: Parts arrived and installation starts Monday.'}><textarea rows={4} value={note} onChange={(event) => setNote(event.target.value)} minLength={3} required /></Field>}
-      {canAttachProgressImage && uploadedImageVersion === null && <Field label="Progress evidence" hint={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? 'The file will be saved as completion evidence.' : 'Optional progress evidence.'}><label className="file-picker progress-image-picker"><FileUp /><span>{progressImage?.name ?? 'Upload from device'}</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => selectProgressImage(event.target.files?.[0] ?? null)} /></label><button type="button" className="drive-browse-button" onClick={() => setShowProgressDriveBrowser(true)}><FolderSearch /> Choose from Google Drive</button></Field>}
-      {uploadedImageVersion !== null && <p className="evidence-confirmation"><Check /> Image uploaded. Confirm progress to finish this update.</p>}
-      {action !== 'reopen' && order.drive_provisioning_status !== 'COMPLETE' && <p className="muted progress-image-unavailable">Images can be added after the project Drive folder is ready.</p>}
+      {order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence && <p className="form-error">{locale === 'id' ? 'Tambahkan setidaknya satu file proposal sebelum mengirimkan untuk persetujuan.' : 'Add at least one proposal file before submitting for approval.'}</p>}
+      {targetStage === 'REVIEW' && isManager && order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status) && <Field label={locale === 'id' ? 'Alasan pengecualian pengadaan' : 'Procurement override reason'} required hint={locale === 'id' ? 'Pengadaan yang belum selesai menghalangi pemeriksaan kecuali manajer mendokumentasikan pengecualian.' : 'Unresolved procurement blocks review unless a manager documents an override.'}><textarea rows={3} value={procurementOverrideReason} onChange={(event) => setProcurementOverrideReason(event.target.value)} required /></Field>}
+      {targetStage === 'COMPLETED' && !hasCompletionPhotoForSubmit && <Field label={locale === 'id' ? 'Alasan pengecualian manajer' : 'Manager waiver reason'} required hint={locale === 'id' ? 'Foto penyelesaian diperlukan. Manajer Fasilitas dapat memberikan pengecualian dengan alasan terdokumentasi.' : 'A completion photo is required. A Facilities Manager may waive it with a documented reason.'}><textarea rows={3} value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} required /></Field>}
+      {targetStage === 'COMPLETED' && hasCompletionPhotoForSubmit && <p className="evidence-confirmation"><Check /> {progressImage ? (locale === 'id' ? 'Gambar yang dipilih akan dilampirkan sebagai bukti penyelesaian.' : 'The selected image will be attached as completion evidence.') : uploadedAsCompletion ? (locale === 'id' ? 'Gambar diunggah sebagai bukti penyelesaian.' : 'The image was uploaded as completion evidence.') : (locale === 'id' ? 'Bukti foto penyelesaian telah dilampirkan.' : 'Completion photo evidence is attached.')}</p>}
+      {(action === 'reject' || action === 'reopen') && <Field label={copy.reason} required><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} required /></Field>}
+      {action !== 'reopen' && <Field label={targetStage === 'COMPLETED' ? copy.finalCheckNote : isMidProgressUpdate ? copy.progressUpdate : targetStage === 'REVIEW' ? copy.completionNote : copy.shortUpdate} required hint={isMidProgressUpdate ? (locale === 'id' ? 'Contoh: Pemasangan telah 60% selesai; pekerjaan kelistrikan dilanjutkan besok.' : 'Example: Installation is 60% complete; electrical work continues tomorrow.') : targetStage === 'REVIEW' ? (locale === 'id' ? 'Tambahkan catatan yang mengonfirmasi seluruh pekerjaan selesai dan siap diperiksa.' : 'Add one note confirming the whole work order is finished and ready for review.') : (locale === 'id' ? 'Contoh: Komponen telah tiba dan pemasangan dimulai Senin.' : 'Example: Parts arrived and installation starts Monday.')}><textarea rows={4} value={note} onChange={(event) => setNote(event.target.value)} minLength={3} required /></Field>}
+      {canAttachProgressImage && uploadedImageVersion === null && <Field label={copy.progressEvidence} hint={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? (locale === 'id' ? 'File akan disimpan sebagai bukti penyelesaian.' : 'The file will be saved as completion evidence.') : (locale === 'id' ? 'Bukti progres opsional.' : 'Optional progress evidence.')}><label className="file-picker progress-image-picker"><FileUp /><span>{progressImage?.name ?? (locale === 'id' ? 'Unggah dari perangkat' : 'Upload from device')}</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => selectProgressImage(event.target.files?.[0] ?? null)} /></label><button type="button" className="drive-browse-button" onClick={() => setShowProgressDriveBrowser(true)}><FolderSearch /> {locale === 'id' ? 'Pilih dari Google Drive' : 'Choose from Google Drive'}</button></Field>}
+      {uploadedImageVersion !== null && <p className="evidence-confirmation"><Check /> {locale === 'id' ? 'Gambar diunggah. Konfirmasikan progres untuk menyelesaikan pembaruan ini.' : 'Image uploaded. Confirm progress to finish this update.'}</p>}
+      {action !== 'reopen' && order.drive_provisioning_status !== 'COMPLETE' && <p className="muted progress-image-unavailable">{locale === 'id' ? 'Gambar dapat ditambahkan setelah folder Drive proyek siap.' : 'Images can be added after the project Drive folder is ready.'}</p>}
       {submitting && uploadProgress > 0 && uploadProgress < 100 && <div className="upload-progress" aria-label={`Upload ${uploadProgress}%`}><span style={{ width: `${uploadProgress}%` }} /></div>}
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting || (!targetStage && action !== 'reopen') || vendorStructuredStage || (order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence)}>{submitting ? 'Saving...' : action === 'reject' ? 'Reject back to In Progress' : action === 'reopen' ? 'Reopen work order' : isMidProgressUpdate ? 'Save progress update' : targetStage === 'REVIEW' ? 'Mark work completed' : targetStage === 'COMPLETED' ? 'Approve completion' : 'Confirm progress'}</button></footer>
+    <footer><button className="primary-button" disabled={submitting || (!targetStage && action !== 'reopen') || vendorStructuredStage || (order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence)}>{submitting ? copy.saving : action === 'reject' ? copy.rejectToProgress : action === 'reopen' ? copy.reopenWork : isMidProgressUpdate ? copy.saveProgress : targetStage === 'REVIEW' ? copy.markCompleted : targetStage === 'COMPLETED' ? copy.approveCompletion : copy.confirmProgress}</button></footer>
     {showProgressDriveBrowser && <DriveBrowser title="Choose progress evidence" onClose={() => setShowProgressDriveBrowser(false)} onSelect={(selected, accessToken) => void transferProgressDrive(selected, accessToken)} />}
   </form>;
 }

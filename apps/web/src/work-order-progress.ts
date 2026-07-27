@@ -66,11 +66,14 @@ export function getProjectProgress(order: ProgressInput, locale: Locale = 'en') 
   };
 }
 
-export function getProgressActionLabel(order: ProgressInput, isManager: boolean): string {
-  if (order.status === 'COMPLETED') return 'Reopen work order';
-  if (order.workflow_stage === 'APPROVAL') return isManager ? 'Review proposal' : 'Waiting for approval';
-  if (order.workflow_stage === 'REVIEW') return isManager ? 'Review completion' : 'Waiting for final check';
-  return 'Update progress';
+export function getProgressActionLabel(order: ProgressInput, isManager: boolean, locale: Locale = 'en'): string {
+  const labels = locale === 'id'
+    ? { reopen: 'Buka kembali pekerjaan', reviewProposal: 'Tinjau proposal', waitingApproval: 'Menunggu persetujuan', reviewCompletion: 'Tinjau penyelesaian', waitingFinalCheck: 'Menunggu pemeriksaan akhir', updateProgress: 'Perbarui progres' }
+    : { reopen: 'Reopen work order', reviewProposal: 'Review proposal', waitingApproval: 'Waiting for approval', reviewCompletion: 'Review completion', waitingFinalCheck: 'Waiting for final check', updateProgress: 'Update progress' };
+  if (order.status === 'COMPLETED') return labels.reopen;
+  if (order.workflow_stage === 'APPROVAL') return isManager ? labels.reviewProposal : labels.waitingApproval;
+  if (order.workflow_stage === 'REVIEW') return isManager ? labels.reviewCompletion : labels.waitingFinalCheck;
+  return labels.updateProgress;
 }
 
 export function getUpdateLabel(updateType: string, locale: Locale = 'en'): string {
