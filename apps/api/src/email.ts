@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { google, type gmail_v1 } from 'googleapis';
 import { config } from './config.js';
 
@@ -52,13 +53,32 @@ export function buildRawEmail(input: { toEmail: string; toName?: string; subject
   return Buffer.from(mime).toString('base64url');
 }
 
+export function parseGmailServiceAccountCredentials(raw: string): { clientEmail: string; privateKey: string } {
+  let credentials: unknown;
+  try {
+    credentials = JSON.parse(raw);
+  } catch {
+    throw new Error('GMAIL_APPLICATION_CREDENTIALS must contain valid service-account JSON.');
+  }
+  if (!credentials || typeof credentials !== 'object') {
+    throw new Error('GMAIL_APPLICATION_CREDENTIALS must contain a service-account JSON object.');
+  }
+  const { client_email: clientEmail, private_key: privateKey } = credentials as Record<string, unknown>;
+  if (typeof clientEmail !== 'string' || !clientEmail || typeof privateKey !== 'string' || !privateKey) {
+    throw new Error('GMAIL_APPLICATION_CREDENTIALS must contain client_email and private_key.');
+  }
+  return { clientEmail, privateKey };
+}
+
 function getGmail(): gmail_v1.Gmail {
   if (!config.GMAIL_APPLICATION_CREDENTIALS) throw new Error('GMAIL_APPLICATION_CREDENTIALS is not configured.');
   if (!config.GMAIL_SENDER_EMAIL) throw new Error('GMAIL_SENDER_EMAIL is not configured.');
+  const credentials = parseGmailServiceAccountCredentials(readFileSync(config.GMAIL_APPLICATION_CREDENTIALS, 'utf8'));
   gmailClient ??= google.gmail({
     version: 'v1',
     auth: new google.auth.JWT({
-      keyFile: config.GMAIL_APPLICATION_CREDENTIALS,
+      email: credentials.clientEmail,
+      key: credentials.privateKey,
       scopes: ['https://www.googleapis.com/auth/gmail.send'],
       subject: config.GMAIL_SENDER_EMAIL,
     }),
