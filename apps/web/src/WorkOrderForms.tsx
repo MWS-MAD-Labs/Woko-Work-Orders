@@ -214,7 +214,7 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
     </div>,
   ];
   const stepNames = [t('basic'), t('location'), t('responsibility'), t('schedule'), t('reviewStep')];
-  return <form className="sheet" onSubmit={submit}>
+  return <form className="sheet new-work-order-sheet" onSubmit={submit}>
     <header className="sheet-header"><div><span>{t('newWorkOrder')}</span><h2>{stepNames[step]}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label={t('close')}><X /></button></header>
     <div className="stepper" aria-label={`${t('step')} ${step + 1} ${t('of')} ${sections.length}`}>{stepNames.map((name, index) => <span key={name} className={index <= step ? 'active' : ''}>{index < step ? <Check /> : index + 1}<small>{name}</small></span>)}</div>
     <div className="sheet-content">{sections[step]}{error && <p className="form-error" role="alert">{error}</p>}</div>
