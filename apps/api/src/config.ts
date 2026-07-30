@@ -16,7 +16,7 @@ const schema = z.object({
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   GOOGLE_PICKER_API_KEY: z.string().min(1).optional(),
   GOOGLE_PICKER_APP_ID: z.string().min(1).optional(),
-  SESSION_DURATION_HOURS: z.coerce.number().int().min(1).max(24).default(8),
+
   APP_TIME_ZONE: z.string().default('Asia/Jakarta'),
   BACKGROUND_JOBS_ENABLED: z.string().default('true').transform((value) => value === 'true'),
   JOB_POLL_INTERVAL_MS: z.coerce.number().int().min(250).default(2000),

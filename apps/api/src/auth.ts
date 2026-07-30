@@ -22,12 +22,13 @@ declare module 'fastify' {
 }
 
 export const sessionCookieName = 'woko_session';
+export const sessionDurationHours = 24 * 30;
 export const sessionCookieOptions = {
   path: '/',
   httpOnly: true,
   secure: config.NODE_ENV === 'production',
   sameSite: 'lax' as const,
-  maxAge: config.SESSION_DURATION_HOURS * 60 * 60,
+  maxAge: sessionDurationHours * 60 * 60,
 };
 
 export function sha256(value: string): string {

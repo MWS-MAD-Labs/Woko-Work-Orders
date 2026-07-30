@@ -74,7 +74,7 @@ AUTH_MODE=google
 ALLOWED_GOOGLE_DOMAIN=example.org
 GOOGLE_OAUTH_CLIENT_ID=replace-with-oauth-client-id
 GOOGLE_OAUTH_CLIENT_SECRET=replace-with-oauth-client-secret
-SESSION_DURATION_HOURS=8
+
 
 # Google Picker and Drive
 GOOGLE_PICKER_API_KEY=replace-with-restricted-browser-api-key

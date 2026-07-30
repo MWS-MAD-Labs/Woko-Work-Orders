@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { roles, type Role } from '@woko/domain';
 import { CodeChallengeMethod } from 'google-auth-library';
 import { z } from 'zod';
-import { authenticate, oauthClient, randomToken, requireAdministrator, safeHashEquals, sessionCookieName, sessionCookieOptions, sha256 } from './auth.js';
+import { authenticate, oauthClient, randomToken, requireAdministrator, safeHashEquals, sessionCookieName, sessionCookieOptions, sessionDurationHours, sha256 } from './auth.js';
 import { config } from './config.js';
 import { sql } from './database/client.js';
 
@@ -99,7 +99,7 @@ export async function authRoutes(app: FastifyInstance) {
         const token = randomToken();
         const sessions = await transaction<Array<{ expires_at: string }>>`
           insert into user_sessions (token_hash, user_id, expires_at, user_agent, ip_address)
-          values (${sha256(token)}, ${user.id}, now() + (${config.SESSION_DURATION_HOURS} * interval '1 hour'), ${request.headers['user-agent'] ?? null}, ${request.ip})
+          values (${sha256(token)}, ${user.id}, now() + (${sessionDurationHours} * interval '1 hour'), ${request.headers['user-agent'] ?? null}, ${request.ip})
           returning expires_at::text
         `;
         await transaction`
