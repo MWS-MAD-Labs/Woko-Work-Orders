@@ -430,3 +430,25 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
 }
+
+.work-list-cards { display: grid; gap: 12px; }
+.work-list-card { width: 100%; text-align: left; border: 1px solid var(--line, #dce7ec); border-radius: 14px; background: #fff; padding: 16px; display: grid; gap: 5px; }
+.work-list-card.overdue { border-left: 5px solid #a52c30; }
+.work-list-card.submitted, .work-list-card.submitted_late { border-left: 5px solid #5f7d6b; }
+.work-list-card span, .work-list-card small, .work-list-card em { color: #64747c; font-size: .82rem; font-style: normal; }
+.work-list-card em { margin-top: 4px; }
+.checklist-items { display: grid; gap: 10px; }
+.checklist-items article { display: flex; justify-content: space-between; gap: 12px; border: 1px solid #dce7ec; border-radius: 12px; padding: 12px; }
+.checklist-items article.issue { border-color: #a52c30; background: #fff7f7; }
+.checklist-items article p, .checklist-items article small { margin: 5px 0 0; display: block; color: #64747c; }
+.item-actions { display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px; }
+.item-actions button { border: 1px solid #dce7ec; background: #fff; border-radius: 8px; padding: 7px; font-size: .75rem; }
+.work-list-evidence { display: grid; gap: 8px; margin: 20px 0; }
+.work-list-evidence a { color: inherit; display: flex; gap: 7px; align-items: center; }
+.template-layout { display: grid; grid-template-columns: minmax(180px, .35fr) 1fr; gap: 18px; }
+.template-list { display: grid; gap: 6px; align-content: start; }
+.template-list button { border: 1px solid #dce7ec; text-align: left; border-radius: 9px; padding: 10px; background: #fff; display: grid; gap: 4px; }
+.template-list small { color: #64747c; }
+.template-editor { display: grid; gap: 14px; }
+.template-item { border: 1px solid #dce7ec; border-radius: 10px; padding: 10px; display: grid; gap: 8px; }
+@media (max-width: 680px) { .template-layout { grid-template-columns: 1fr; } .checklist-items article { display: grid; } .item-actions { order: -1; } }

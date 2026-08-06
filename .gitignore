@@ -7,3 +7,5 @@ coverage
 apps/web/public/sw.js
 apps/web/public/workbox-*.js
 *.log
+
+.local-secrets/

@@ -101,6 +101,10 @@ export interface WorkOrder {
   attachments?: Array<{ id: string; evidence_type: EvidenceType; attachment_context: AttachmentContext; source_type: 'UPLOAD' | 'DRIVE_LINK' | 'DRIVE_COPY' | 'DRIVE_MOVE' | 'DRIVE_SHORTCUT'; file_name: string; original_file_name: string | null; mime_type: string; file_size: number | null; drive_url: string; uploaded_by: string; created_at: string }>;
 }
 
+export type WorkListItemStatus = 'COMPLETED' | 'NOT_APPLICABLE' | 'ISSUE_FOUND';
+export interface WorkListOccurrence { id: string; recurrence: 'DAILY' | 'WEEKLY' | 'MONTHLY'; period_date: string; due_at: string; status: 'OPEN' | 'OVERDUE' | 'SUBMITTED' | 'SUBMITTED_LATE'; location_snapshot: { name: string }; template_snapshot: { title: string; instructions: string }; overall_note: string | null; submitted_at: string | null; version: number; resolved_count?: number; required_count?: number; items?: Array<{ id: string; title: string; instructions: string; required: boolean; sort_order: number; status: WorkListItemStatus | null; note: string | null; resolved_by: string | null; resolved_at: string | null }>; evidence?: Array<{ id: string; drive_url: string; file_name: string; uploaded_by: string; created_at: string }>; }
+export interface WorkListTemplate { id: string; title: string; instructions: string; active: boolean; version: number; location_ids: string[]; worker_ids: string[]; items: Array<{ id?: string; title: string; instructions: string; recurrence: 'DAILY' | 'WEEKLY' | 'MONTHLY'; required: boolean; sort_order?: number }>; }
+
 export interface ProposalApprovalItem {
   id: string;
   work_order_number: string;

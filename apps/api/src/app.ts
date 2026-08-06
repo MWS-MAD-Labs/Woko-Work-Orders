@@ -13,6 +13,7 @@ import { notificationRoutes } from './notifications.js';
 import { reportRoutes } from './reports.js';
 import { adminLocationRoutes } from './admin-locations.js';
 import { adminWorkSettingRoutes } from './admin-work-settings.js';
+import { workListRoutes } from './work-lists.js';
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true, genReqId: () => crypto.randomUUID() });
@@ -61,5 +62,6 @@ export async function buildApp() {
   await app.register(reportRoutes, { prefix: '/api/v1' });
   await app.register(adminLocationRoutes, { prefix: '/api/v1' });
   await app.register(adminWorkSettingRoutes, { prefix: '/api/v1' });
+  await app.register(workListRoutes, { prefix: '/api/v1' });
   return app;
 }

@@ -9,6 +9,7 @@ Woko is Millennia World School's mobile-first facilities work-order application.
 - Mobile-first installable PWA with Bahasa Indonesia and English interfaces
 - Internal and vendor work-order workflows with role-aware transitions
 - Work assignment for PICs, restricted internal workers, reviewers, and overseers
+- Location-based recurring Work Lists for daily, Saturday weekly, and last-Saturday monthly facilities routines, with shared worker completion, photos, overdue reminders, and Facilities Manager digests
 - Internal procurement proposal tracking and Facilities review queue
 - PIC-authorized work-order creation
 - Priority, due-date, overdue, blocked, and at-risk tracking

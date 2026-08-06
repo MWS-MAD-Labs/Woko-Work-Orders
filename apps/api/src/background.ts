@@ -69,6 +69,67 @@ function reminderCopy(workOrder: ReminderWorkOrder, type: string, daysUntilDue: 
   }
 }
 
+function localHourInTimeZone(now = new Date(), timeZone = config.APP_TIME_ZONE): number {
+  return Number(new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(now));
+}
+
+function dayOfWeek(date: string): number { return new Date(`${date}T12:00:00Z`).getUTCDay(); }
+
+function isLastSaturday(date: string): boolean {
+  if (dayOfWeek(date) !== 6) return false;
+  const next = new Date(`${date}T12:00:00Z`); next.setUTCDate(next.getUTCDate() + 7);
+  return next.getUTCMonth() !== new Date(`${date}T12:00:00Z`).getUTCMonth();
+}
+
+async function generateWorkListOccurrences(localDate: string) {
+  const templates = await sql<Array<{ id: string; version: number; title: string; instructions: string; location_ids: string[]; worker_ids: string[]; recurrence: 'DAILY' | 'WEEKLY' | 'MONTHLY' }>>`
+    select t.id, t.version, t.title, t.instructions, array_agg(distinct l.location_option_id)::text[] as location_ids,
+      array_agg(distinct w.user_id)::text[] as worker_ids, i.recurrence
+    from work_list_templates t join work_list_template_items i on i.template_id=t.id
+      join work_list_template_locations l on l.template_id=t.id join work_list_template_workers w on w.template_id=t.id
+    where t.active group by t.id, t.version, t.title, t.instructions, i.recurrence
+  `;
+  for (const template of templates) {
+    const due = template.recurrence === 'DAILY' || (template.recurrence === 'WEEKLY' && dayOfWeek(localDate) === 6) || (template.recurrence === 'MONTHLY' && isLastSaturday(localDate));
+    if (!due) continue;
+    const items = await sql`select id, title, instructions, required, sort_order from work_list_template_items where template_id=${template.id} and recurrence=${template.recurrence} order by sort_order`;
+    for (const locationId of template.location_ids) {
+      const location = await sql<Array<{ id: string; name: string; type_label: string }>>`select id, name, type_label from location_options where id=${locationId}`;
+      if (!location[0]) continue;
+      const result = await sql`
+        insert into work_list_occurrences (template_id, template_version, recurrence, period_date, due_at, location_option_id, location_snapshot, template_snapshot, worker_ids)
+        values (${template.id}, ${template.version}, ${template.recurrence}::work_list_recurrence, ${localDate}::date, ((${localDate}::date + time '17:00') at time zone ${config.APP_TIME_ZONE}), ${locationId}, ${sql.json(location[0])}, ${sql.json({ title: template.title, instructions: template.instructions })}, ${template.worker_ids}::uuid[])
+        on conflict (template_id, template_version, location_option_id, recurrence, period_date) do nothing returning id
+      `;
+      if (result[0]) await sql`insert into work_list_occurrence_items (occurrence_id, template_item_id, title, instructions, required, sort_order) select ${result[0].id}, id, title, instructions, required, sort_order from work_list_template_items where template_id=${template.id} and recurrence=${template.recurrence}`;
+    }
+  }
+}
+
+async function generateWorkListNotifications(localDate: string) {
+  await sql`update work_list_occurrences set status='OVERDUE', updated_at=now() where status='OPEN' and due_at < now()`;
+  const overdue = await sql<Array<{ id: string; title: string; worker_ids: string[] }>>`
+    select o.id, o.template_snapshot->>'title' as title, o.worker_ids
+    from work_list_occurrences o where o.status='OVERDUE'
+  `;
+  const byWorker = new Map<string, Array<{ id: string; title: string }>>();
+  for (const row of overdue) for (const workerId of row.worker_ids) byWorker.set(workerId, [...(byWorker.get(workerId) ?? []), { id: row.id, title: row.title }]);
+  for (const [workerId, occurrences] of byWorker) await sql`
+    insert into notifications (recipient_user_id, type, title, message, idempotency_key)
+    values (${workerId}, 'WORK_LIST_OVERDUE', 'Overdue Work Lists', ${`You have ${occurrences.length} overdue Work List${occurrences.length === 1 ? '' : 's'}: ${occurrences.slice(0, 3).map((item) => item.title).join(', ')}.`}, ${`work-list-overdue:${workerId}:${localDate}`})
+    on conflict (idempotency_key) where idempotency_key is not null do nothing
+  `;
+  if (dayOfWeek(localDate) !== 1 || localHourInTimeZone() !== 8) return;
+  const summary = await sql<Array<{ status: string; count: number }>>`select status, count(*)::int as count from work_list_occurrences where period_date >= (${localDate}::date - 7) and period_date < ${localDate}::date group by status`;
+  const message = `Previous week Work List activity: ${summary.map((row) => `${row.count} ${row.status.toLowerCase().replaceAll('_', ' ')}`).join(', ') || 'no activity'}.`;
+  await sql`
+    insert into notifications (recipient_user_id, type, title, message, idempotency_key)
+    select u.id, 'WORK_LIST_WEEKLY_DIGEST', 'Weekly Work List activity', ${message}, 'work-list-digest:' || u.id::text || ':' || ${localDate}
+    from users u join user_roles r on r.user_id=u.id where u.active and r.role='FACILITIES_MANAGER'
+    on conflict (idempotency_key) where idempotency_key is not null do nothing
+  `;
+}
+
 async function generateReminders(localDate: string) {
   const workOrders = await sql<ReminderWorkOrder[]>`
     select wo.id, wo.work_order_number, wo.title, wo.due_date::text, wo.priority, wo.reviewer_id,
@@ -221,6 +282,8 @@ async function processJob(job: JobRow) {
   }
   if (job.job_type === 'REMINDER_SCAN') {
     const localDate = zString(job.payload.localDate);
+    await generateWorkListOccurrences(localDate);
+    await generateWorkListNotifications(localDate);
     await generateReminders(localDate);
     return;
   }
