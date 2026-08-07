@@ -12,7 +12,7 @@ import { NotificationsView } from './NotificationsView';
 import { subscribeToPushNotifications } from './push';
 import { ReportsView } from './ReportsView';
 import { WorkListsView } from './WorkListsView';
-import { WorkListTemplateForm } from './WorkListTemplateForm';
+
 import { getProgressActionLabel, getProjectPhases, getProjectProgress, getUpdateLabel } from './work-order-progress';
 import { formatParticipantChanges } from './participant-change';
 
@@ -198,7 +198,7 @@ export default function App() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showReports, setShowReports] = useState(false);
   const [showWorkLists, setShowWorkLists] = useState(false);
-  const [showWorkListTemplates, setShowWorkListTemplates] = useState(false);
+
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [pushStatus, setPushStatus] = useState<'idle' | 'subscribing' | 'subscribed' | 'unsupported' | 'unavailable' | 'denied' | 'failed'>('idle');
   const deferredQuery = useDeferredValue(query.toLowerCase());
@@ -285,7 +285,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a>
-      <nav aria-label="Primary"><button className="nav-item nav-button active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /> {t('workOrders')}</button><button className="nav-item nav-button" onClick={() => setShowWorkLists(true)}><ClipboardCheck /> Work Lists</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowWorkListTemplates(true)}><Settings /> Work List templates</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{currentUser.roles.includes('ADMINISTRATOR') && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
+      <nav aria-label="Primary"><button className="nav-item nav-button active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /> {t('workOrders')}</button><button className="nav-item nav-button" onClick={() => setShowWorkLists(true)}><ClipboardCheck /> Work Lists</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
       <div className="sidebar-footer"><button className="quiet-language-button" onClick={changeLocale} title={t('language')}><Languages /> {locale === 'id' ? 'English' : 'Bahasa Indonesia'}</button><div className="sidebar-user"><Avatar name={currentUser.fullName} photoUrl={currentUser.profilePhotoUrl} /><strong>{currentUser.fullName}</strong></div></div>
     </aside>
 
@@ -320,12 +320,12 @@ export default function App() {
     {canCreate && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
     <nav className="bottom-nav" aria-label="Mobile navigation"><button className="active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button onClick={() => setShowWorkLists(true)}><ClipboardCheck /><span>Work Lists</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
-    {showOrganizationSettings && currentUser.roles.includes('ADMINISTRATOR') && <OrganizationSettings onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
+    {showOrganizationSettings && managerAccess && references && <OrganizationSettings references={references} administrator={currentUser.roles.includes('ADMINISTRATOR')} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
     {showNotifications && <NotificationsView onClose={() => setShowNotifications(false)} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
     {showReports && <ReportsView onClose={() => setShowReports(false)} />}
     {showWorkLists && <WorkListsView currentUser={currentUser} onClose={() => setShowWorkLists(false)} />}
-    {showWorkListTemplates && managerAccess && references && <WorkListTemplateForm references={references} onClose={() => setShowWorkListTemplates(false)} />}
+
     {showCreate && references && <div className="sheet-backdrop" onMouseDown={() => setShowCreate(false)}><div onMouseDown={(event) => event.stopPropagation()}><CreateWorkOrderForm references={references} currentUser={currentUser} locale={locale} onClose={() => setShowCreate(false)} onCreated={async (id) => { setShowCreate(false); await loadOrders(); setSelected(await api<Order>(`/work-orders/${id}`)); }} /></div></div>}
   </div>;
 }

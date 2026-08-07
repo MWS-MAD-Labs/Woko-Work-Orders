@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authenticate, requireManager } from './auth.js';
+import { generateWorkListOccurrences, localDateInTimeZone } from './background.js';
 import { sql } from './database/client.js';
 import { prepareEvidenceUpload } from './evidence.js';
 import { uploadDriveFile } from './drive.js';
@@ -9,7 +10,7 @@ const id = z.string().uuid();
 const itemSchema = z.object({ title: z.string().trim().min(2).max(300), instructions: z.string().trim().max(2_000).default(''), recurrence: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']), required: z.boolean().default(true) });
 const templateSchema = z.object({ title: z.string().trim().min(3).max(200), instructions: z.string().trim().max(4_000).default(''), active: z.boolean().default(true), locationIds: z.array(id).min(1).max(100), workerIds: z.array(id).min(1).max(100), items: z.array(itemSchema).min(1).max(100) });
 const resolveSchema = z.object({ status: z.enum(['COMPLETED', 'NOT_APPLICABLE', 'ISSUE_FOUND']), note: z.string().trim().max(2_000).default(''), expectedVersion: z.number().int().positive() }).superRefine((value, context) => { if (value.status !== 'COMPLETED' && value.note.length < 3) context.addIssue({ code: 'custom', path: ['note'], message: 'Explain items that are not applicable or have an issue.' }); });
-const submitSchema = z.object({ note: z.string().trim().min(3).max(2_000), expectedVersion: z.number().int().positive() });
+const submitSchema = z.object({ note: z.string().trim().max(2_000).default(''), expectedVersion: z.number().int().positive() });
 
 function manager(roles: readonly string[]) { return roles.includes('ADMINISTRATOR') || roles.includes('FACILITIES_MANAGER'); }
 async function canAccessOccurrence(occurrenceId: string, userId: string, roles: readonly string[]) {
@@ -47,6 +48,7 @@ export async function workListRoutes(app: FastifyInstance) {
       await tx`insert into work_list_audit_events (template_id, user_id, event_type, data) values (${templateId}, ${request.currentUser.id}, 'TEMPLATE_CREATED', ${tx.json({ title: input.title })})`;
       return { id: templateId };
     });
+    await generateWorkListOccurrences(localDateInTimeZone());
     return reply.code(201).send({ data: result });
   });
 
@@ -71,7 +73,9 @@ export async function workListRoutes(app: FastifyInstance) {
     const rows = await sql`
       select o.id, o.recurrence, o.period_date::text, o.due_at::text, o.status, o.location_snapshot, o.template_snapshot, o.worker_ids, o.overall_note, o.submitted_at::text, o.version,
         coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id and i.status is not null), 0) resolved_count,
-        coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id and i.required), 0) required_count
+        coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id and i.required), 0) required_count,
+        coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id), 0) item_count,
+        coalesce((select json_agg(json_build_object('id', preview.id, 'title', preview.title, 'instructions', preview.instructions, 'required', preview.required, 'sort_order', preview.sort_order, 'status', preview.status, 'note', preview.note) order by preview.sort_order) from (select i.id, i.title, i.instructions, i.required, i.sort_order, i.status, i.note from work_list_occurrence_items i where i.occurrence_id=o.id order by i.sort_order limit 3) preview), '[]'::json) preview_items
       from work_list_occurrences o where ${manager(request.currentUser.roles) ? sql`true` : sql`${request.currentUser.id} = any(o.worker_ids)`}
       order by case when o.status in ('OPEN','OVERDUE') then 0 else 1 end, o.due_at desc limit 200`;
     return { data: rows };
@@ -122,7 +126,7 @@ export async function workListRoutes(app: FastifyInstance) {
       const photos = await tx<Array<{ count: number }>>`select count(*)::int as count from work_list_evidence where occurrence_id=${occurrenceId}`;
       if (incomplete[0]!.count) return { error: 'REQUIRED_ITEMS_INCOMPLETE' } as const; if (!photos[0]!.count) return { error: 'PHOTO_REQUIRED' } as const;
       const late = new Date(occurrence.due_at) < new Date(); const status = late ? 'SUBMITTED_LATE' : 'SUBMITTED';
-      await tx`update work_list_occurrences set status=${status}::work_list_occurrence_status, overall_note=${input.note}, submitted_at=now(), submitted_by=${request.currentUser.id}, version=version+1, updated_at=now() where id=${occurrenceId}`;
+      await tx`update work_list_occurrences set status=${status}::work_list_occurrence_status, overall_note=${input.note || null}, submitted_at=now(), submitted_by=${request.currentUser.id}, version=version+1, updated_at=now() where id=${occurrenceId}`;
       await tx`insert into work_list_audit_events (occurrence_id, user_id, event_type, data) values (${occurrenceId}, ${request.currentUser.id}, 'SUBMITTED', ${tx.json({ status })})`;
       return { status, version: occurrence.version + 1 } as const;
     });

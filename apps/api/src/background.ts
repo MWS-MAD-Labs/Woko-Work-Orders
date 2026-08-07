@@ -81,7 +81,7 @@ function isLastSaturday(date: string): boolean {
   return next.getUTCMonth() !== new Date(`${date}T12:00:00Z`).getUTCMonth();
 }
 
-async function generateWorkListOccurrences(localDate: string) {
+export async function generateWorkListOccurrences(localDate: string) {
   const templates = await sql<Array<{ id: string; version: number; title: string; instructions: string; location_ids: string[]; worker_ids: string[]; recurrence: 'DAILY' | 'WEEKLY' | 'MONTHLY' }>>`
     select t.id, t.version, t.title, t.instructions, array_agg(distinct l.location_option_id)::text[] as location_ids,
       array_agg(distinct w.user_id)::text[] as worker_ids, i.recurrence
