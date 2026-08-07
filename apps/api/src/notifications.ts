@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate, requireAdministrator } from './auth.js';
 import { sql } from './database/client.js';
 import { localizeNotification } from './notification-localization.js';
+import { config } from './config.js';
 
 const notificationParams = z.object({ id: z.string().uuid() });
 const pushSubscriptionSchema = z.object({
@@ -54,6 +55,54 @@ export async function notificationRoutes(app: FastifyInstance) {
       limit ${query.limit}
     `;
     return { data: rows.map((row) => localizeNotification(row as { type: string; title: string; message: string }, request.currentUser.preferredLocale)) };
+  });
+
+  app.get('/notifications/:id/digest', async (request, reply) => {
+    const { id } = notificationParams.parse(request.params);
+    const notifications = await sql<Array<{ id: string; type: string; title: string; message: string; idempotency_key: string | null; created_at: string }>>`
+      select id, type, title, message, idempotency_key, created_at::text
+      from notifications
+      where id = ${id} and recipient_user_id = ${request.currentUser.id}
+        and type in ('WORK_LIST_MISSED_DIGEST', 'WORK_LIST_WEEKLY_DIGEST')
+    `;
+    const notification = notifications[0];
+    if (!notification) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Digest not found.', requestId: request.id } });
+
+    let periodStart: string | null = null;
+    let periodEnd: string | null = null;
+    let rows: Array<Record<string, unknown>> = [];
+    const missedDate = notification.idempotency_key?.match(/^work-list-missed-digest:(\d{4}-\d{2}-\d{2}):/)?.[1];
+    const weeklyDate = notification.idempotency_key?.match(/:(\d{4}-\d{2}-\d{2})$/)?.[1];
+
+    if (notification.type === 'WORK_LIST_MISSED_DIGEST' && missedDate) {
+      periodStart = missedDate;
+      periodEnd = missedDate;
+      rows = await sql`
+        select o.id, o.template_id, o.status, o.recurrence, o.period_date::text, o.due_at::text,
+          o.template_snapshot->>'title' as title, o.location_snapshot->>'name' as location,
+          coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id), 0) item_count,
+          coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id and i.status is not null), 0) resolved_count,
+          coalesce((select json_agg(u.full_name order by u.full_name) from users u where u.id = any(o.worker_ids)), '[]'::json) workers
+        from work_list_occurrences o
+        where o.status='MISSED' and (o.due_at at time zone ${config.APP_TIME_ZONE})::date=${missedDate}::date
+        order by o.due_at, title, location
+      `;
+    } else if (notification.type === 'WORK_LIST_WEEKLY_DIGEST' && weeklyDate) {
+      periodStart = await sql<Array<{ value: string }>>`select (${weeklyDate}::date - 7)::text as value`.then((result) => result[0]?.value ?? null);
+      periodEnd = weeklyDate;
+      rows = await sql`
+        select o.id, o.template_id, o.status, o.recurrence, o.period_date::text, o.due_at::text,
+          o.template_snapshot->>'title' as title, o.location_snapshot->>'name' as location,
+          coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id), 0) item_count,
+          coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id and i.status is not null), 0) resolved_count,
+          coalesce((select json_agg(u.full_name order by u.full_name) from users u where u.id = any(o.worker_ids)), '[]'::json) workers
+        from work_list_occurrences o
+        where o.period_date >= (${weeklyDate}::date - 7) and o.period_date < ${weeklyDate}::date
+        order by o.period_date desc, title, location
+      `;
+    }
+
+    return { data: { ...localizeNotification(notification, request.currentUser.preferredLocale), created_at: notification.created_at, period_start: periodStart, period_end: periodEnd, items: rows } };
   });
 
   app.post('/notifications/:id/retry-email', { preHandler: requireAdministrator }, async (request, reply) => {

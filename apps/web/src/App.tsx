@@ -229,6 +229,7 @@ export default function App() {
         setCurrentUser({ ...user, preferredLocale: effectiveLocale }); setReferences(loadedReferences); setOrders(loadedOrders); setUnreadNotifications(unread.count); setAuthState('authenticated');
         const startupParams = new URLSearchParams(window.location.search);
         if (startupParams.get('view') === 'work-lists') setShowWorkLists(true);
+        if (startupParams.get('digest')) setShowNotifications(true);
         const workOrderId = startupParams.get('workOrder');
         if (workOrderId) {
           try { setSelected(await api<Order>(`/work-orders/${workOrderId}`)); } catch { /* Keep the work-order list available when a deep link is stale. */ }
@@ -324,7 +325,7 @@ export default function App() {
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
     {showOrganizationSettings && managerAccess && references && <OrganizationSettings references={references} administrator={currentUser.roles.includes('ADMINISTRATOR')} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
-    {showNotifications && <NotificationsView onClose={() => setShowNotifications(false)} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
+    {showNotifications && <NotificationsView onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('digest'); window.history.replaceState({}, '', url); setShowNotifications(false); }} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
     {showReports && <ReportsView onClose={() => setShowReports(false)} />}
     {showWorkLists && <WorkListsView currentUser={currentUser} onClose={() => setShowWorkLists(false)} />}
 
