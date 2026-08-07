@@ -227,7 +227,9 @@ export default function App() {
         if (savedLocale && savedLocale !== user.preferredLocale) await api('/me/preferences', { method: 'PATCH', body: JSON.stringify({ locale: savedLocale }) });
         localStorage.setItem('woko-locale', effectiveLocale); setLocale(effectiveLocale);
         setCurrentUser({ ...user, preferredLocale: effectiveLocale }); setReferences(loadedReferences); setOrders(loadedOrders); setUnreadNotifications(unread.count); setAuthState('authenticated');
-        const workOrderId = new URLSearchParams(window.location.search).get('workOrder');
+        const startupParams = new URLSearchParams(window.location.search);
+        if (startupParams.get('view') === 'work-lists') setShowWorkLists(true);
+        const workOrderId = startupParams.get('workOrder');
         if (workOrderId) {
           try { setSelected(await api<Order>(`/work-orders/${workOrderId}`)); } catch { /* Keep the work-order list available when a deep link is stale. */ }
         }

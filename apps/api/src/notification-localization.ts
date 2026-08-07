@@ -28,6 +28,8 @@ const typeLabels: Record<string, string> = {
   FIRST_DAY_OVERDUE: 'Mulai terlambat hari ini',
   CRITICAL_OVERDUE_REMINDER: 'Kritis dan terlambat',
   OVERDUE_REMINDER: 'Pengingat keterlambatan',
+  WORK_LIST_DAILY_REMINDER: 'Pengingat daftar kerja hari ini',
+  WORK_LIST_MISSED_DIGEST: 'Ringkasan daftar kerja terlewat',
 };
 
 const values: Record<string, string> = {
@@ -74,6 +76,14 @@ function localizeMessage(type: string, message: string): string {
     case 'FIRST_DAY_OVERDUE': return message.replace(/ became overdue today\.$/, ' mulai terlambat hari ini.');
     case 'CRITICAL_OVERDUE_REMINDER': return message.replace(/ is critical and (\d+) days overdue\.$/, ' bersifat kritis dan terlambat $1 hari.');
     case 'OVERDUE_REMINDER': return message.replace(/ is (\d+) days overdue\.$/, ' terlambat $1 hari.');
+    case 'WORK_LIST_DAILY_REMINDER': return message
+      .replace(/^You have ([0-9]+) Work List(s?) with unfinished items today: /, 'Anda memiliki $1 daftar kerja dengan item yang belum selesai hari ini: ')
+      .replace(/ Complete them before the deadline\.$/, ' Selesaikan sebelum tenggat.');
+    case 'WORK_LIST_MISSED_DIGEST': return message
+      .replace(/^([0-9]+) Work List(s?) due (\d{4}-\d{2}-\d{2}) were missed: /, '$1 daftar kerja dengan tenggat $3 terlewat: ')
+      .replace(/^([0-9]+) Work List(s?) were missed yesterday: /, '$1 daftar kerja terlewat kemarin: ')
+      .replace(/^([0-9]+) Work List(s?) (?:was|were) converted from overdue to missed during deployment: /, '$1 daftar kerja diubah dari terlambat menjadi terlewat saat penerapan sistem: ')
+      .replace(/ No worker action is required; this (?:digest|notice) is for facilities monitoring only\.$/, ' Tidak diperlukan tindakan dari pekerja; ringkasan ini hanya untuk pemantauan tim fasilitas.');
     default: return message;
   }
 }
@@ -91,8 +101,8 @@ export const emailCopy = {
     criticalOverdue: 'Critical & overdue', overdueReminder: 'Overdue reminder', overdue: 'Overdue', conditionUpdate: 'Work condition update', conditionChanged: 'Condition changed',
     vendorProposal: 'Vendor proposal', awaitingApproval: 'Awaiting approval', proposalDecision: 'Vendor proposal decision', approved: 'Approved', rejected: 'Rejected', revisionRequired: 'Revision required',
     completionReview: 'Completion review', reviewSubmitted: 'Review submitted', completionDecision: 'Completion decision', changesRequired: 'Changes required', workOrderStatus: 'Work-order status',
-    reopened: 'Reopened', cancelled: 'Cancelled', workOrderUpdate: 'Work-order update', notification: 'Woko Work Orders notification', priority: 'Priority', condition: 'Condition', stage: 'Stage',
-    dueDate: 'Due date', hello: 'Hello', openWorkOrder: 'Open work order', signIn: 'Sign in with your Millennia World School Google Workspace account.',
+    reopened: 'Reopened', cancelled: 'Cancelled', dailyChecklistReminder: 'Today’s checklist reminder', unfinishedToday: 'Unfinished today', missedMonitoring: 'Facilities monitoring', missed: 'Missed · no action required', workOrderUpdate: 'Work-order update', notification: 'Woko Work Orders notification', priority: 'Priority', condition: 'Condition', stage: 'Stage',
+    dueDate: 'Due date', hello: 'Hello', openWorkOrder: 'Open work order', openWorkLists: 'Open Work Lists', signIn: 'Sign in with your Millennia World School Google Workspace account.',
     automated: 'This automated message was sent by Woko Work Orders.', footer: 'Automated notification from Woko Work Orders · MAD Labs · Millennia World School', doNotReply: 'Please do not reply to this email.', facilitiesWork: 'Facilities work', blocked: 'Blocked', onTrack: 'On track', atRisk: 'At risk', progressDiscussion: 'Progress discussion', newComment: 'New comment',
   },
   id: {
@@ -102,8 +112,8 @@ export const emailCopy = {
     criticalOverdue: 'Kritis dan terlambat', overdueReminder: 'Pengingat keterlambatan', overdue: 'Terlambat', conditionUpdate: 'Pembaruan kondisi pekerjaan', conditionChanged: 'Kondisi berubah',
     vendorProposal: 'Proposal vendor', awaitingApproval: 'Menunggu persetujuan', proposalDecision: 'Keputusan proposal vendor', approved: 'Disetujui', rejected: 'Ditolak', revisionRequired: 'Perlu revisi',
     completionReview: 'Ulasan penyelesaian', reviewSubmitted: 'Ulasan diajukan', completionDecision: 'Keputusan penyelesaian', changesRequired: 'Perlu perbaikan', workOrderStatus: 'Status pekerjaan',
-    reopened: 'Dibuka kembali', cancelled: 'Dibatalkan', workOrderUpdate: 'Pembaruan pekerjaan', notification: 'Notifikasi Woko Work Orders', priority: 'Prioritas', condition: 'Kondisi', stage: 'Tahap',
-    dueDate: 'Tenggat', hello: 'Halo', openWorkOrder: 'Buka pekerjaan', signIn: 'Masuk dengan akun Google Workspace Millennia World School Anda.',
+    reopened: 'Dibuka kembali', cancelled: 'Dibatalkan', dailyChecklistReminder: 'Pengingat daftar kerja hari ini', unfinishedToday: 'Belum selesai hari ini', missedMonitoring: 'Pemantauan fasilitas', missed: 'Terlewat · tidak perlu tindakan', workOrderUpdate: 'Pembaruan pekerjaan', notification: 'Notifikasi Woko Work Orders', priority: 'Prioritas', condition: 'Kondisi', stage: 'Tahap',
+    dueDate: 'Tenggat', hello: 'Halo', openWorkOrder: 'Buka pekerjaan', openWorkLists: 'Buka Daftar Kerja', signIn: 'Masuk dengan akun Google Workspace Millennia World School Anda.',
     automated: 'Pesan otomatis ini dikirim oleh Woko Work Orders.', footer: 'Notifikasi otomatis dari Woko Work Orders · MAD Labs · Millennia World School', doNotReply: 'Mohon jangan membalas email ini.', facilitiesWork: 'Pekerjaan fasilitas', blocked: 'Terhambat', onTrack: 'Sesuai rencana', atRisk: 'Berisiko', progressDiscussion: 'Diskusi progres', newComment: 'Komentar baru',
   },
 } as const;

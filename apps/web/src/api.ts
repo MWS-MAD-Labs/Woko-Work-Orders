@@ -6,7 +6,9 @@ export class ApiError extends Error {
   }
 }
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+type ApiEnvelope<T, M = unknown> = { data: T; meta?: M };
+
+async function requestEnvelope<T, M = unknown>(path: string, init?: RequestInit): Promise<ApiEnvelope<T, M>> {
   const headers = new Headers(init?.headers);
   if (typeof init?.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
@@ -17,7 +19,19 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError(body.error?.message ?? 'Request failed', response.status, body.error?.code);
-  return body.data;
+  return body as ApiEnvelope<T, M>;
+}
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await requestEnvelope<T>(path, init)).data;
+}
+
+export async function apiWithMeta<T, M>(path: string, init?: RequestInit): Promise<ApiEnvelope<T, M>> {
+  return requestEnvelope<T, M>(path, init);
+}
+
+export function apiResourceUrl(path: string): string {
+  return `${apiUrl}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
 export function authLoginUrl(redirect = '/'): string {

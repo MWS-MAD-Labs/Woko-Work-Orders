@@ -34,6 +34,22 @@ describe('notification email templates', () => {
     expect(content.html).toContain('&lt;script&gt;');
   });
 
+  it('renders Work List reminders with a Work Lists action and no fake work-order details', () => {
+    const content = renderNotificationEmail({ ...base, type: 'WORK_LIST_DAILY_REMINDER', title: 'Work Lists still to complete today', message: 'You have 2 Work Lists with unfinished required items today.', workOrderId: null, workOrderNumber: null, workOrderTitle: null, priority: null, condition: null, workflowStage: null, dueDate: null });
+    expect(content.html).toContain('Open Work Lists');
+    expect(content.html).toContain('view=work-lists');
+    expect(content.html).not.toContain('FAC-2026-0099');
+    expect(content.text).not.toContain('Priority:');
+  });
+
+  it('renders missed digests as informational messages without an action link', () => {
+    const content = renderNotificationEmail({ ...base, type: 'WORK_LIST_MISSED_DIGEST', title: 'Yesterday’s missed Work Lists', message: '2 Work Lists were missed yesterday. No worker action is required; this digest is for facilities monitoring only.', workOrderId: null, workOrderNumber: null, workOrderTitle: null, priority: null, condition: null, workflowStage: null, dueDate: null });
+    expect(content.html).toContain('Missed · no action required');
+    expect(content.html).not.toContain('Open work order');
+    expect(content.html).not.toContain('Open Work Lists');
+    expect(content.text).toContain('No worker action is required');
+  });
+
   it('renders system email copy in the recipient preferred language', () => {
     const content = renderNotificationEmail({ ...base, locale: 'id' });
     expect(content.html).toContain('Pembaruan tanggung jawab');

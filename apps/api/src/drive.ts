@@ -108,6 +108,11 @@ export async function deleteDriveFolderPermission(folderId: string, permissionId
   }
 }
 
+export async function downloadDriveFile(fileId: string): Promise<Readable> {
+  const response = await getDrive().files.get({ fileId, alt: 'media', supportsAllDrives: true }, { responseType: 'stream' });
+  return response.data as unknown as Readable;
+}
+
 export async function deleteDriveFile(fileId: string): Promise<void> {
   try {
     await getDrive().files.delete({ fileId, supportsAllDrives: true });
@@ -121,9 +126,22 @@ export async function deleteDriveFile(fileId: string): Promise<void> {
   }
 }
 
-export async function uploadDriveFile(input: { folderId: string; fileName: string; mimeType: string; buffer: Buffer }): Promise<{ id: string; webViewLink: string }> {
+export async function findDriveFileByAppProperty(key: string, value: string): Promise<string | undefined> {
+  const response = await getDrive().files.list({
+    q: `appProperties has { key='${escapeDriveQuery(key)}' and value='${escapeDriveQuery(value)}' } and trashed = false`,
+    fields: 'files(id)',
+    pageSize: 1,
+    corpora: 'drive',
+    driveId: config.GOOGLE_SHARED_DRIVE_ID,
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+  });
+  return response.data.files?.[0]?.id ?? undefined;
+}
+
+export async function uploadDriveFile(input: { folderId: string; fileName: string; mimeType: string; buffer: Buffer; appProperties?: Record<string, string> }): Promise<{ id: string; webViewLink: string }> {
   const response = await getDrive().files.create({
-    requestBody: { name: input.fileName, parents: [input.folderId] },
+    requestBody: { name: input.fileName, parents: [input.folderId], appProperties: input.appProperties },
     media: { mimeType: input.mimeType, body: Readable.from(input.buffer) },
     fields: 'id,webViewLink',
     supportsAllDrives: true,

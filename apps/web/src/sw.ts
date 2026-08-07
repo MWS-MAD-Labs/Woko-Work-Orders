@@ -14,13 +14,14 @@ type PushPayload = {
   body?: string;
   notificationId?: string;
   workOrderId?: string | null;
+  targetUrl?: string;
 };
 
 self.addEventListener('push', (event) => {
   const payload = event.data?.json() as PushPayload | undefined;
   const title = payload?.title ?? 'Woko';
   const body = payload?.body ?? 'You have a new notification.';
-  const target = payload?.workOrderId ? `/?workOrder=${encodeURIComponent(payload.workOrderId)}` : '/';
+  const target = payload?.targetUrl ?? (payload?.workOrderId ? `/?workOrder=${encodeURIComponent(payload.workOrderId)}` : '/');
 
   event.waitUntil(self.registration.showNotification(title, {
     body,

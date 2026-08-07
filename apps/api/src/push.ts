@@ -12,6 +12,7 @@ export type PushPayload = {
   body: string;
   notificationId: string;
   workOrderId: string | null;
+  targetUrl?: string;
 };
 
 if (config.WEB_PUSH_ENABLED) {

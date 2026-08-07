@@ -5,7 +5,7 @@ import { sendNotificationEmail } from './email.js';
 import { renderInvitationEmail } from './invitation-email.js';
 import { renderNotificationEmail } from './notification-email.js';
 import { localizeNotification, type NotificationLocale } from './notification-localization.js';
-import { deleteDriveFile } from './drive.js';
+import { deleteDriveFile, findDriveFileByAppProperty } from './drive.js';
 import { pushSubscriptionHasExpired, sendPushNotification, webPushEnabled } from './push.js';
 
 type JobRow = {
@@ -69,8 +69,14 @@ function reminderCopy(workOrder: ReminderWorkOrder, type: string, daysUntilDue: 
   }
 }
 
+export function localTimeInTimeZone(now = new Date(), timeZone = config.APP_TIME_ZONE): { hour: number; minute: number } {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return { hour: Number(value.hour), minute: Number(value.minute) };
+}
+
 function localHourInTimeZone(now = new Date(), timeZone = config.APP_TIME_ZONE): number {
-  return Number(new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(now));
+  return localTimeInTimeZone(now, timeZone).hour;
 }
 
 function dayOfWeek(date: string): number { return new Date(`${date}T12:00:00Z`).getUTCDay(); }
@@ -106,20 +112,63 @@ export async function generateWorkListOccurrences(localDate: string) {
   }
 }
 
-async function generateWorkListNotifications(localDate: string) {
-  await sql`update work_list_occurrences set status='OVERDUE', updated_at=now() where status='OPEN' and due_at < now()`;
-  const overdue = await sql<Array<{ id: string; title: string; worker_ids: string[] }>>`
-    select o.id, o.template_snapshot->>'title' as title, o.worker_ids
-    from work_list_occurrences o where o.status='OVERDUE'
-  `;
-  const byWorker = new Map<string, Array<{ id: string; title: string }>>();
-  for (const row of overdue) for (const workerId of row.worker_ids) byWorker.set(workerId, [...(byWorker.get(workerId) ?? []), { id: row.id, title: row.title }]);
-  for (const [workerId, occurrences] of byWorker) await sql`
-    insert into notifications (recipient_user_id, type, title, message, idempotency_key)
-    values (${workerId}, 'WORK_LIST_OVERDUE', 'Overdue Work Lists', ${`You have ${occurrences.length} overdue Work List${occurrences.length === 1 ? '' : 's'}: ${occurrences.slice(0, 3).map((item) => item.title).join(', ')}.`}, ${`work-list-overdue:${workerId}:${localDate}`})
-    on conflict (idempotency_key) where idempotency_key is not null do nothing
-  `;
-  if (dayOfWeek(localDate) !== 1 || localHourInTimeZone() !== 8) return;
+export function shouldGenerateDailyWorkListReminder(now: Date, timeZone = config.APP_TIME_ZONE): boolean {
+  const localTime = localTimeInTimeZone(now, timeZone);
+  return localTime.hour > 15 || (localTime.hour === 15 && localTime.minute >= 30);
+}
+
+export function notificationPushBody(type: string, message: string): string {
+  return type === 'WORK_LIST_DAILY_REMINDER' ? 'You have unfinished Work Lists.' : message;
+}
+
+export async function generateWorkListNotifications(localDate: string, now = new Date()) {
+  const localTime = localTimeInTimeZone(now);
+  if (shouldGenerateDailyWorkListReminder(now)) {
+    const unfinished = await sql<Array<{ worker_id: string; count: number; examples: string[] }>>`
+      select u.id as worker_id, count(distinct o.id)::int as count,
+        (array_agg(distinct (o.template_snapshot->>'title') || ' · ' || (o.location_snapshot->>'name')))[1:4] as examples
+      from work_list_occurrences o
+      cross join lateral unnest(o.worker_ids) as worker(worker_id)
+      join users u on u.id=worker.worker_id and u.active
+      join user_roles role on role.user_id=u.id and role.role='WORKER'
+      where o.status='OPEN' and (o.due_at at time zone ${config.APP_TIME_ZONE})::date=${localDate}::date
+        and exists (select 1 from work_list_occurrence_items i where i.occurrence_id=o.id and i.status is null)
+      group by u.id
+    `;
+    for (const row of unfinished) await sql`
+      insert into notifications (recipient_user_id, type, title, message, idempotency_key)
+      values (${row.worker_id}, 'WORK_LIST_DAILY_REMINDER', 'Work Lists still to complete today',
+        ${`You have ${row.count} Work List${row.count === 1 ? '' : 's'} with unfinished items today: ${row.examples.join(', ')}${row.count > 4 ? ', and more' : ''}. Complete them before the deadline.`},
+        ${`work-list-daily-reminder:${localDate}:${row.worker_id}`})
+      on conflict (idempotency_key) where idempotency_key is not null do nothing
+    `;
+  }
+
+  await sql`update work_list_occurrences set status='MISSED', version=version+1, updated_at=now() where status in ('OPEN', 'OVERDUE') and due_at < now()`;
+
+  if (localTime.hour >= 7) {
+    const missedDates = await sql<Array<{ due_date: string; count: number; examples: string[] }>>`
+      select (due_at at time zone ${config.APP_TIME_ZONE})::date::text as due_date, count(*)::int as count,
+        (array_agg((template_snapshot->>'title') || ' · ' || (location_snapshot->>'name') order by due_at))[1:4] as examples
+      from work_list_occurrences
+      where status='MISSED'
+        and due_at < (${localDate}::date at time zone ${config.APP_TIME_ZONE})
+        and due_at >= ((${localDate}::date - 14) at time zone ${config.APP_TIME_ZONE})
+      group by (due_at at time zone ${config.APP_TIME_ZONE})::date
+      order by (due_at at time zone ${config.APP_TIME_ZONE})::date
+    `;
+    for (const digest of missedDates) await sql`
+      insert into notifications (recipient_user_id, type, title, message, idempotency_key)
+      select distinct u.id, 'WORK_LIST_MISSED_DIGEST', ${`Missed Work Lists · ${digest.due_date}`},
+        ${`${digest.count} Work List${digest.count === 1 ? '' : 's'} due ${digest.due_date} were missed: ${digest.examples.join(', ')}${digest.count > 4 ? ', and more' : ''}. No worker action is required; this digest is for facilities monitoring only.`},
+        ${`work-list-missed-digest:${digest.due_date}:`} || u.id::text
+      from users u join user_roles r on r.user_id=u.id
+      where u.active and r.role='FACILITIES_MANAGER'
+      on conflict (idempotency_key) where idempotency_key is not null do nothing
+    `;
+  }
+
+  if (dayOfWeek(localDate) !== 1 || localHourInTimeZone(now) !== 8) return;
   const summary = await sql<Array<{ status: string; count: number }>>`select status, count(*)::int as count from work_list_occurrences where period_date >= (${localDate}::date - 7) and period_date < ${localDate}::date group by status`;
   const message = `Previous week Work List activity: ${summary.map((row) => `${row.count} ${row.status.toLowerCase().replaceAll('_', ' ')}`).join(', ') || 'no activity'}.`;
   await sql`
@@ -200,10 +249,15 @@ async function deliverNotificationEmail(notificationId: string) {
   await sql`update notifications set email_status = 'SENT', email_sent_at = now(), email_last_error = null where id = ${notificationId}`;
 }
 
+export function notificationTargetUrl(type: string, workOrderId: string | null): string | undefined {
+  if (type === 'WORK_LIST_DAILY_REMINDER') return '/?view=work-lists';
+  return workOrderId ? `/?workOrder=${encodeURIComponent(workOrderId)}` : undefined;
+}
+
 async function deliverNotificationPush(notificationId: string) {
   if (!webPushEnabled()) return;
-  const rows = await sql<Array<{ id: string; title: string; message: string; work_order_id: string | null; endpoint: string; p256dh: string; auth: string }>>`
-    select n.id, n.title, n.message, n.work_order_id, ps.endpoint, ps.p256dh, ps.auth
+  const rows = await sql<Array<{ id: string; type: string; title: string; message: string; work_order_id: string | null; endpoint: string; p256dh: string; auth: string }>>`
+    select n.id, n.type, n.title, n.message, n.work_order_id, ps.endpoint, ps.p256dh, ps.auth
     from notifications n
     join push_subscriptions ps on ps.user_id = n.recipient_user_id
     where n.id = ${notificationId}
@@ -212,9 +266,10 @@ async function deliverNotificationPush(notificationId: string) {
     try {
       await sendPushNotification(subscription, {
         title: subscription.title,
-        body: subscription.message,
+        body: notificationPushBody(subscription.type, subscription.message),
         notificationId: subscription.id,
         workOrderId: subscription.work_order_id,
+        targetUrl: notificationTargetUrl(subscription.type, subscription.work_order_id),
       });
     } catch (error) {
       if (pushSubscriptionHasExpired(error)) {
@@ -273,6 +328,24 @@ async function cleanupPendingAttachments() {
     if (attachment.drive_file_id) await deleteDriveFile(attachment.drive_file_id).catch(() => undefined);
     await sql`update attachments set removed_at = now(), status = 'ATTACHED', pending_action_token = null where id = ${attachment.id} and status = 'PENDING'`;
   }
+
+  const workListUploads = await sql<Array<{ id: string; drive_file_id: string | null }>>`
+    select id, drive_file_id from work_list_evidence_uploads
+    where status='PENDING' and created_at < now() - interval '24 hours'
+    order by created_at limit 100
+  `;
+  for (const upload of workListUploads) {
+    let driveFileId = upload.drive_file_id;
+    if (!driveFileId) {
+      try { driveFileId = await findDriveFileByAppProperty('workListEvidenceUploadId', upload.id) ?? null; }
+      catch { continue; }
+    }
+    if (driveFileId) {
+      const deleted = await deleteDriveFile(driveFileId).then(() => true).catch(() => false);
+      if (!deleted) continue;
+    }
+    await sql`update work_list_evidence_uploads set status='CANCELLED' where id=${upload.id} and status='PENDING'`;
+  }
 }
 
 async function processJob(job: JobRow) {
@@ -283,7 +356,6 @@ async function processJob(job: JobRow) {
   if (job.job_type === 'REMINDER_SCAN') {
     const localDate = zString(job.payload.localDate);
     await generateWorkListOccurrences(localDate);
-    await generateWorkListNotifications(localDate);
     await generateReminders(localDate);
     return;
   }
@@ -360,6 +432,7 @@ async function workOnce() {
 async function scheduleReminderScan() {
   const localDate = localDateInTimeZone();
   await Promise.all([
+    generateWorkListNotifications(localDate),
     sql`
       insert into background_jobs (job_type, payload, idempotency_key)
       values ('REMINDER_SCAN', ${sql.json({ localDate })}, ${`reminder-scan:${localDate}`})
