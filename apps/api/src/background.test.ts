@@ -6,7 +6,7 @@ describe('notification reminder scheduling', () => {
     expect(localDateInTimeZone(new Date('2026-07-17T17:30:00Z'), 'Asia/Jakarta')).toBe('2026-07-18');
   });
 
-  it('uses local clock time for scheduled Work List digests', () => {
+  it('uses local clock time for scheduled Routine Work digests', () => {
     expect(localTimeInTimeZone(new Date('2026-07-18T08:30:00Z'), 'Asia/Jakarta')).toEqual({ hour: 15, minute: 30 });
     expect(localTimeInTimeZone(new Date('2026-07-18T00:00:00Z'), 'Asia/Jakarta')).toEqual({ hour: 7, minute: 0 });
   });
@@ -25,20 +25,20 @@ describe('notification reminder scheduling', () => {
     expect(reminderType(-7, 'NORMAL')).toBe('OVERDUE_REMINDER');
   });
 
-  it('deep-links Work List reminders to the Work Lists view', () => {
+  it('deep-links Routine Work reminders to the Routine Work view', () => {
     expect(notificationTargetUrl('WORK_LIST_DAILY_REMINDER', null)).toBe('/?view=work-lists');
     expect(notificationTargetUrl('ASSIGNMENT', '99999999-9999-4999-8999-999999999999')).toBe('/?workOrder=99999999-9999-4999-8999-999999999999');
     expect(notificationTargetUrl('WORK_LIST_MISSED_DIGEST', null)).toBeUndefined();
   });
 
-  it('catches up the daily Work List reminder after the 15:30 slot', () => {
+  it('catches up the daily Routine Work reminder after the 15:30 slot', () => {
     expect(shouldGenerateDailyWorkListReminder(new Date('2026-08-07T08:29:00Z'), 'Asia/Jakarta')).toBe(false);
     expect(shouldGenerateDailyWorkListReminder(new Date('2026-08-07T08:30:00Z'), 'Asia/Jakarta')).toBe(true);
     expect(shouldGenerateDailyWorkListReminder(new Date('2026-08-07T11:00:00Z'), 'Asia/Jakarta')).toBe(true);
   });
 
-  it('keeps operational Work List details out of push previews', () => {
-    expect(notificationPushBody('WORK_LIST_DAILY_REMINDER', 'Daily checks · Server room')).toBe('You have unfinished Work Lists.');
+  it('keeps operational Routine Work details out of push previews', () => {
+    expect(notificationPushBody('WORK_LIST_DAILY_REMINDER', 'Daily checks · Server room')).toBe('You have unfinished Routine Work.');
     expect(notificationPushBody('ASSIGNMENT', 'Repair classroom door')).toBe('Repair classroom door');
   });
 });

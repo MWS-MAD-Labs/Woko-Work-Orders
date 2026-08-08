@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, FolderSearch, LoaderCircle } from 'lucide-react';
 import { api } from './api';
+import type { Locale } from './i18n';
 
 declare global {
   interface Window {
@@ -24,6 +25,7 @@ interface PickerConfig {
 }
 
 interface DriveBrowserProps {
+  locale: Locale;
   title?: string;
   onClose: () => void;
   onSelect: (file: DriveBrowserItem, accessToken: string) => void;
@@ -64,7 +66,7 @@ function loadGoogleScripts(): Promise<void> {
   scriptsPromise ??= new Promise((resolve, reject) => {
     let pickerReady = Boolean(window.google?.picker);
     let identityReady = Boolean(window.google?.accounts?.oauth2);
-    const timeout = window.setTimeout(() => reject(new Error('Google Picker initialization timed out. Check popup blocking and the browser console.')), 12_000);
+    const timeout = window.setTimeout(() => reject(new Error('DRIVE_PICKER_TIMEOUT')), 12_000);
     const done = () => {
       if (pickerReady && identityReady) {
         window.clearTimeout(timeout);
@@ -73,7 +75,7 @@ function loadGoogleScripts(): Promise<void> {
     };
     const fail = () => {
       window.clearTimeout(timeout);
-      reject(new Error('Google Drive scripts could not be loaded.'));
+      reject(new Error('DRIVE_SCRIPTS_FAILED'));
     };
 
     const initializePicker = () => window.gapi?.load('picker', {
@@ -105,8 +107,12 @@ function loadGoogleScripts(): Promise<void> {
   return scriptsPromise;
 }
 
-export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSelect }: DriveBrowserProps) {
-  const [status, setStatus] = useState('Preparing Google Drive…');
+export function DriveBrowser({ locale, title, onClose, onSelect }: DriveBrowserProps) {
+  const copy = locale === 'id'
+    ? { defaultTitle: 'Pilih dari Google Drive', preparing: 'Menyiapkan Google Drive…', pickerNotReady: 'Google Picker belum siap. Tutup panel ini lalu coba lagi.', pickerOpen: 'Google Picker terbuka.', permissionDenied: 'Izin Google Drive tidak diberikan', popupBlocked: 'Popup otorisasi Google diblokir. Izinkan popup untuk Woko lalu coba lagi.', popupClosed: 'Jendela otorisasi Google ditutup sebelum akses Drive selesai.', authorizationFailed: (type: string) => `Otorisasi Google tidak dapat dibuka (${type}). Pastikan URL Woko ini terdaftar persis sebagai origin JavaScript OAuth.`, opening: 'Membuka Google Drive…', accessRequired: 'Akses Google Drive diperlukan', openFailed: 'Google Drive tidak dapat dibuka.', connecting: 'Menghubungkan ke Google Drive…', close: 'Tutup', connect: 'Hubungkan Google Drive', tokenHint: 'Otorisasi Google hanya diminta jika tab browser ini tidak memiliki token akses Drive yang masih berlaku.', loading: 'Memuat Google Identity Services dan Picker…', openDrive: 'Buka Google Drive', timeout: 'Waktu penyiapan Google Picker habis. Periksa pemblokiran popup dan konsol browser.', scriptsFailed: 'Skrip Google Drive tidak dapat dimuat.' }
+    : { defaultTitle: 'Choose from Google Drive', preparing: 'Preparing Google Drive…', pickerNotReady: 'Google Picker is not ready. Close this panel and try again.', pickerOpen: 'Google Picker is open.', permissionDenied: 'Google Drive permission was not granted', popupBlocked: 'The Google authorization popup was blocked. Allow popups for Woko and try again.', popupClosed: 'The Google authorization window was closed before Drive access completed.', authorizationFailed: (type: string) => `Google authorization could not be opened (${type}). Check that this exact Woko URL is registered as an OAuth JavaScript origin.`, opening: 'Opening Google Drive…', accessRequired: 'Google Drive access required', openFailed: 'Google Drive could not be opened.', connecting: 'Connecting to Google Drive…', close: 'Close', connect: 'Connect Google Drive', tokenHint: 'Google authorization is only requested when this browser tab does not have a valid Drive access token.', loading: 'Loading Google Identity Services and Picker…', openDrive: 'Open Google Drive', timeout: 'Google Picker initialization timed out. Check popup blocking and the browser console.', scriptsFailed: 'Google Drive scripts could not be loaded.' };
+  const pickerTitle = title ?? copy.defaultTitle;
+  const [status, setStatus] = useState(copy.preparing);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
   const configRef = useRef<PickerConfig | null>(null);
@@ -119,7 +125,7 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
   const showPicker = (accessToken: string) => {
     const config = configRef.current;
     if (!config || !window.google?.picker) {
-      setError('Google Picker is not ready. Close this panel and try again.');
+      setError(copy.pickerNotReady);
       return;
     }
     const view = new window.google.picker.DocsView(window.google.picker.ViewId.DOCS)
@@ -127,7 +133,7 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
       .setIncludeFolders(true)
       .setSelectFolderEnabled(false);
     const picker = new window.google.picker.PickerBuilder()
-      .setTitle(title)
+      .setTitle(pickerTitle)
       .setDeveloperKey(config.apiKey)
       .setAppId(config.appId)
       .setOAuthToken(accessToken)
@@ -147,7 +153,7 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
       })
       .build();
     picker.setVisible(true);
-    setStatus('Google Picker is open.');
+    setStatus(copy.pickerOpen);
   };
 
   useEffect(() => {
@@ -164,7 +170,7 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
           callback: (response: { access_token?: string; expires_in?: number; error?: string }) => {
             if (!active) return;
             if (response.error || !response.access_token) {
-              setError(`Google Drive permission was not granted${response.error ? ` (${response.error})` : ''}.`);
+              setError(`${copy.permissionDenied}${response.error ? ` (${response.error})` : ''}.`);
               return;
             }
             cacheDriveToken(config.email, response.access_token, response.expires_in ?? 3600);
@@ -173,34 +179,40 @@ export function DriveBrowser({ title = 'Choose from Google Drive', onClose, onSe
           error_callback: (response: { type?: string }) => {
             if (!active) return;
             const message = response.type === 'popup_failed_to_open'
-              ? 'The Google authorization popup was blocked. Allow popups for Woko and try again.'
+              ? copy.popupBlocked
               : response.type === 'popup_closed'
-                ? 'The Google authorization window was closed before Drive access completed.'
-                : `Google authorization could not be opened (${response.type ?? 'unknown'}). Check that this exact Woko URL is registered as an OAuth JavaScript origin.`;
+                ? copy.popupClosed
+                : copy.authorizationFailed(response.type ?? (locale === 'id' ? 'tidak diketahui' : 'unknown'));
             setError(message);
           },
         });
         const cachedToken = readCachedDriveToken(config.email);
         if (cachedToken) {
-          setStatus('Opening Google Drive…');
+          setStatus(copy.opening);
           showPicker(cachedToken.accessToken);
         } else {
-          setStatus('Google Drive access required');
+          setStatus(copy.accessRequired);
           setReady(true);
         }
       })
-      .catch((caught) => active && setError(caught instanceof Error ? caught.message : 'Google Drive could not be opened.'));
+      .catch((caught) => {
+        if (!active) return;
+        const message = caught instanceof Error && caught.message === 'DRIVE_PICKER_TIMEOUT' ? copy.timeout
+          : caught instanceof Error && caught.message === 'DRIVE_SCRIPTS_FAILED' ? copy.scriptsFailed
+          : caught instanceof Error ? caught.message : copy.openFailed;
+        setError(message);
+      });
     return () => { active = false; };
-  }, [title]);
+  }, [locale, pickerTitle]);
 
   const authorize = () => {
     setError('');
-    setStatus('Connecting to Google Drive…');
+    setStatus(copy.connecting);
     tokenClientRef.current?.requestAccessToken({ login_hint: configRef.current?.email });
   };
 
   return <div className="drive-picker-launch" role="status">
-    {error ? <><p className="form-error">{error}</p><button type="button" className="secondary-button" onClick={onClose}>Close</button></> : ready ? <><FolderSearch /><strong>{status}</strong><button type="button" className="primary-button" onClick={authorize}>Connect Google Drive</button><small>Google authorization is only requested when this browser tab does not have a valid Drive access token.</small></> : <><LoaderCircle className="picker-spinner" /><strong>{status}</strong><small>Loading Google Identity Services and Picker…</small></>}
-    <a href="https://drive.google.com" target="_blank" rel="noreferrer"><ExternalLink /> Open Google Drive</a>
+    {error ? <><p className="form-error">{error}</p><button type="button" className="secondary-button" onClick={onClose}>{copy.close}</button></> : ready ? <><FolderSearch /><strong>{status}</strong><button type="button" className="primary-button" onClick={authorize}>{copy.connect}</button><small>{copy.tokenHint}</small></> : <><LoaderCircle className="picker-spinner" /><strong>{status}</strong><small>{copy.loading}</small></>}
+    <a href="https://drive.google.com" target="_blank" rel="noreferrer"><ExternalLink /> {copy.openDrive}</a>
   </div>;
 }

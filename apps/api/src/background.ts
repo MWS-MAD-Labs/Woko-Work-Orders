@@ -118,7 +118,7 @@ export function shouldGenerateDailyWorkListReminder(now: Date, timeZone = config
 }
 
 export function notificationPushBody(type: string, message: string): string {
-  return type === 'WORK_LIST_DAILY_REMINDER' ? 'You have unfinished Work Lists.' : message;
+  return type === 'WORK_LIST_DAILY_REMINDER' ? 'You have unfinished Routine Work.' : message;
 }
 
 export async function generateWorkListNotifications(localDate: string, now = new Date()) {
@@ -137,8 +137,8 @@ export async function generateWorkListNotifications(localDate: string, now = new
     `;
     for (const row of unfinished) await sql`
       insert into notifications (recipient_user_id, type, title, message, idempotency_key)
-      values (${row.worker_id}, 'WORK_LIST_DAILY_REMINDER', 'Work Lists still to complete today',
-        ${`You have ${row.count} Work List${row.count === 1 ? '' : 's'} with unfinished items today: ${row.examples.join(', ')}${row.count > 4 ? ', and more' : ''}. Complete them before the deadline.`},
+      values (${row.worker_id}, 'WORK_LIST_DAILY_REMINDER', 'Routine Work still to complete today',
+        ${`You have ${row.count} Routine Work with unfinished items today: ${row.examples.join(', ')}${row.count > 4 ? ', and more' : ''}. Complete them before the deadline.`},
         ${`work-list-daily-reminder:${localDate}:${row.worker_id}`})
       on conflict (idempotency_key) where idempotency_key is not null do nothing
     `;
@@ -159,8 +159,8 @@ export async function generateWorkListNotifications(localDate: string, now = new
     `;
     for (const digest of missedDates) await sql`
       insert into notifications (recipient_user_id, type, title, message, idempotency_key)
-      select distinct u.id, 'WORK_LIST_MISSED_DIGEST', ${`Missed Work Lists · ${digest.due_date}`},
-        ${`${digest.count} Work List${digest.count === 1 ? '' : 's'} due ${digest.due_date} were missed: ${digest.examples.join(', ')}${digest.count > 4 ? ', and more' : ''}. No worker action is required; this digest is for facilities monitoring only.`},
+      select distinct u.id, 'WORK_LIST_MISSED_DIGEST', ${`Missed Routine Work · ${digest.due_date}`},
+        ${`${digest.count} Routine Work due ${digest.due_date} were missed: ${digest.examples.join(', ')}${digest.count > 4 ? ', and more' : ''}. No worker action is required; this digest is for facilities monitoring only.`},
         ${`work-list-missed-digest:${digest.due_date}:`} || u.id::text
       from users u join user_roles r on r.user_id=u.id
       where u.active and r.role='FACILITIES_MANAGER'
@@ -170,10 +170,10 @@ export async function generateWorkListNotifications(localDate: string, now = new
 
   if (dayOfWeek(localDate) !== 1 || localHourInTimeZone(now) !== 8) return;
   const summary = await sql<Array<{ status: string; count: number }>>`select status, count(*)::int as count from work_list_occurrences where period_date >= (${localDate}::date - 7) and period_date < ${localDate}::date group by status`;
-  const message = `Previous week Work List activity: ${summary.map((row) => `${row.count} ${row.status.toLowerCase().replaceAll('_', ' ')}`).join(', ') || 'no activity'}.`;
+  const message = `Previous week Routine Work activity: ${summary.map((row) => `${row.count} ${row.status.toLowerCase().replaceAll('_', ' ')}`).join(', ') || 'no activity'}.`;
   await sql`
     insert into notifications (recipient_user_id, type, title, message, idempotency_key)
-    select u.id, 'WORK_LIST_WEEKLY_DIGEST', 'Weekly Work List activity', ${message}, 'work-list-digest:' || u.id::text || ':' || ${localDate}
+    select u.id, 'WORK_LIST_WEEKLY_DIGEST', 'Weekly Routine Work activity', ${message}, 'work-list-digest:' || u.id::text || ':' || ${localDate}
     from users u join user_roles r on r.user_id=u.id where u.active and r.role='FACILITIES_MANAGER'
     on conflict (idempotency_key) where idempotency_key is not null do nothing
   `;

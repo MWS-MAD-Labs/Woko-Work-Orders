@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Search, Settings, ShieldAlert, Trash2, UserCheck, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
@@ -75,12 +75,24 @@ function WorkOrderCard({ order, locale, onOpen }: { order: Order; locale: Locale
   );
 }
 
-function LoginScreen({ error }: { error?: string }) {
-  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">Work Order</span><h1>Sign in to Woko</h1><p>Use your registered <strong>@millennia21.id</strong> Google Workspace account.</p>{error && <p className="form-error">Sign-in failed: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> Continue with Google</a></section></main>;
+function localizedEnum(value: string, locale: Locale): string {
+  const idLabels: Record<string, string> = {
+    CRITICAL: 'Kritis', HIGH: 'Tinggi', NORMAL: 'Normal', LOW: 'Rendah',
+    INTERNAL: 'Internal', VENDOR: 'Vendor', INITIAL: 'Awal', PROGRESS: 'Progres',
+    PROPOSAL: 'Proposal', COMPLETION: 'Penyelesaian',
+  };
+  if (locale === 'id') return idLabels[value] ?? value.replaceAll('_', ' ').toLowerCase();
+  return value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function StartupErrorScreen({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">Work Order</span><h1>Woko could not load</h1><p>Your sign-in session may still be valid, but the application API returned an error.</p><p className="form-error">{message}</p><button className="primary-button" onClick={onRetry}>Try again</button></section></main>;
+function LoginScreen({ error, locale }: { error?: string; locale: Locale }) {
+  const idLocale = locale === 'id';
+  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">{idLocale ? 'Pekerjaan' : 'Work Order'}</span><h1>{idLocale ? 'Masuk ke Woko' : 'Sign in to Woko'}</h1><p>{idLocale ? 'Gunakan akun Google Workspace ' : 'Use your registered '}<strong>@millennia21.id</strong>{idLocale ? ' yang telah terdaftar.' : ' Google Workspace account.'}</p>{error && <p className="form-error">{idLocale ? 'Gagal masuk' : 'Sign-in failed'}: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> {idLocale ? 'Lanjutkan dengan Google' : 'Continue with Google'}</a></section></main>;
+}
+
+function StartupErrorScreen({ message, locale, onRetry }: { message: string; locale: Locale; onRetry: () => void }) {
+  const idLocale = locale === 'id';
+  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">{idLocale ? 'Pekerjaan' : 'Work Order'}</span><h1>{idLocale ? 'Woko tidak dapat dimuat' : 'Woko could not load'}</h1><p>{idLocale ? 'Sesi login Anda mungkin masih berlaku, tetapi API aplikasi mengembalikan kesalahan.' : 'Your sign-in session may still be valid, but the application API returned an error.'}</p><p className="form-error">{message}</p><button className="primary-button" onClick={onRetry}>{idLocale ? 'Coba lagi' : 'Try again'}</button></section></main>;
 }
 
 function ProgressDiscussion({ orderId, update, locale, canComment, onChanged }: { orderId: string; update: NonNullable<WorkOrder['updates']>[number]; locale: Locale; canComment: boolean; onChanged: () => Promise<void> }) {
@@ -92,7 +104,7 @@ function ProgressDiscussion({ orderId, update, locale, canComment, onChanged }: 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); if (!body.trim()) return; setSubmitting(true); setError('');
     try { await api(`/work-orders/${orderId}/progress/${update.id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }); setBody(''); await onChanged(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Comment could not be added.'); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Komentar tidak dapat ditambahkan.' : 'Comment could not be added.')); }
     finally { setSubmitting(false); }
   };
   if (!canComment) return null;
@@ -136,7 +148,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
     <section className="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" onMouseDown={(event) => event.stopPropagation()}>
       <header className="drawer-header"><div><span>{order.work_order_number}</span><h2 id="drawer-title">{order.title}</h2></div><button className="icon-button" onClick={onClose} aria-label={t('close')}><X /></button></header>
       <div className="drawer-content">
-        <div className="detail-status"><StatusPill tone="navy">{progress.label}</StatusPill><StatusPill tone={order.priority === 'CRITICAL' ? 'red' : 'gold'}>{order.priority}</StatusPill>{order.condition === 'BLOCKED' && <StatusPill tone="red"><ShieldAlert size={13} /> {t('blockedStatus')}</StatusPill>}{order.condition === 'AT_RISK' && <StatusPill tone="gold"><AlertTriangle size={13} /> {t('needsAttention')}</StatusPill>}{order.condition === 'ON_TRACK' && <StatusPill tone="sage"><CheckCircle2 size={13} /> {t('onTrackStatus')}</StatusPill>}{order.deadlineGroup === 'OVERDUE' && <StatusPill tone="red"><Clock3 size={13} /> {t('overdueStatus')}</StatusPill>}</div>
+        <div className="detail-status"><StatusPill tone="navy">{progress.label}</StatusPill><StatusPill tone={order.priority === 'CRITICAL' ? 'red' : 'gold'}>{localizedEnum(order.priority, locale)}</StatusPill>{order.condition === 'BLOCKED' && <StatusPill tone="red"><ShieldAlert size={13} /> {t('blockedStatus')}</StatusPill>}{order.condition === 'AT_RISK' && <StatusPill tone="gold"><AlertTriangle size={13} /> {t('needsAttention')}</StatusPill>}{order.condition === 'ON_TRACK' && <StatusPill tone="sage"><CheckCircle2 size={13} /> {t('onTrackStatus')}</StatusPill>}{order.deadlineGroup === 'OVERDUE' && <StatusPill tone="red"><Clock3 size={13} /> {t('overdueStatus')}</StatusPill>}</div>
         <section className="project-progress-summary" aria-label={`${t('projectProgress')}: ${progress.label}`}>
           <header><div><span>{t('projectProgress')}</span><strong>{progress.label}</strong>{progress.sublabel && <small>{progress.sublabel}</small>}</div></header>
           <div className="project-progress-track"><span style={{ width: `${progress.percent}%` }} /></div>
@@ -156,7 +168,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
         <dl className="detail-grid">
           <div><dt>{t('due')}</dt><dd>{format(new Date(`${order.due_date}T00:00:00`), 'd MMMM yyyy', { locale: dateLocale })}</dd></div>
           <div><dt>{t('location')}</dt><dd>{order.building}, {order.room_or_area}</dd></div>
-          <div><dt>{t('workType')}</dt><dd>{order.work_type}</dd></div>
+          <div><dt>{t('workType')}</dt><dd>{localizedEnum(order.work_type, locale)}</dd></div>
         </dl>
         <InternalProcurementPanel order={order as WorkOrder} currentUser={currentUser} onChanged={onChanged} />
         <EvidencePanel order={order as WorkOrder} currentUser={currentUser} onChanged={onChanged} />
@@ -166,13 +178,13 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
           const legacyAttachmentId = typeof update.structured_data.attachmentId === 'string' ? update.structured_data.attachmentId : null;
           const attachmentIds = [...new Set([...structuredAttachmentIds, ...(legacyAttachmentId ? [legacyAttachmentId] : [])])];
           const updateAttachments = (order.attachments ?? []).filter((attachment) => attachmentIds.includes(attachment.id));
-          return <article className="timeline-item" key={update.id}><span className="timeline-dot" /><div><strong>{getUpdateLabel(update.update_type, locale)}</strong>{update.update_type !== 'FILE_EVIDENCE_ADDED' && <p>{update.note}</p>}{participantChanges.length > 0 && <ul className="participant-change-list">{participantChanges.map((change) => <li key={change}>{change}</li>)}</ul>}{updateAttachments.length > 0 && <div className="timeline-attachment-list">{updateAttachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><FileText /> <span><strong>{attachment.original_file_name ?? attachment.file_name}</strong><small>{attachment.evidence_type} · {attachment.uploaded_by}</small></span><ExternalLink /></a>)}</div>}<small>{update.author} · {formatDistanceToNow(new Date(update.created_at), { addSuffix: true, locale: dateLocale })}</small><ProgressDiscussion orderId={order.id} update={update} locale={locale} canComment={canComment} onChanged={onChanged} /></div></article>;
+          return <article className="timeline-item" key={update.id}><span className="timeline-dot" /><div><strong>{getUpdateLabel(update.update_type, locale)}</strong>{update.update_type !== 'FILE_EVIDENCE_ADDED' && <p>{update.note}</p>}{participantChanges.length > 0 && <ul className="participant-change-list">{participantChanges.map((change) => <li key={change}>{change}</li>)}</ul>}{updateAttachments.length > 0 && <div className="timeline-attachment-list">{updateAttachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><FileText /> <span><strong>{attachment.original_file_name ?? attachment.file_name}</strong><small>{localizedEnum(attachment.evidence_type, locale)} · {attachment.uploaded_by}</small></span><ExternalLink /></a>)}</div>}<small>{update.author} · {formatDistanceToNow(new Date(update.created_at), { addSuffix: true, locale: dateLocale })}</small><ProgressDiscussion orderId={order.id} update={update} locale={locale} canComment={canComment} onChanged={onChanged} /></div></article>;
         }) : <p className="muted">{t('noUpdates')}</p>}</section>
-        {isManager && <details className="audit-details"><summary>Technical audit history ({audits?.length ?? 0})</summary>{audits?.length ? audits.map((audit: any) => <article className="timeline-item" key={audit.id}><span className="timeline-dot" /><div><strong>{String(audit.event_type).replaceAll('_', ' ')}</strong>{audit.reason && <p>{audit.reason}</p>}<small>{audit.author ?? 'System'} · {formatDistanceToNow(new Date(audit.created_at), { addSuffix: true, locale: dateLocale })}</small></div></article>) : <p className="muted">No audit events recorded.</p>}</details>}
+        {isManager && <details className="audit-details"><summary>{locale === 'id' ? 'Riwayat audit teknis' : 'Technical audit history'} ({audits?.length ?? 0})</summary>{audits?.length ? audits.map((audit: any) => <article className="timeline-item" key={audit.id}><span className="timeline-dot" /><div><strong>{localizedEnum(String(audit.event_type), locale)}</strong>{audit.reason && <p>{audit.reason}</p>}<small>{audit.author ?? (locale === 'id' ? 'Sistem' : 'System')} · {formatDistanceToNow(new Date(audit.created_at), { addSuffix: true, locale: dateLocale })}</small></div></article>) : <p className="muted">{locale === 'id' ? 'Belum ada peristiwa audit yang tercatat.' : 'No audit events recorded.'}</p>}</details>}
       </div>
       <footer className="drawer-actions">{currentUser.roles.includes('ADMINISTRATOR') && <button className="secondary-button delete-work-order-button" onClick={() => { setDeleteError(''); setConfirmingDelete(true); }}><Trash2 /> {locale === 'id' ? 'Hapus pekerjaan' : 'Delete work order'}</button>}{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>{locale === 'id' ? 'Laporkan masalah' : 'Report issue'}</button>}{isManager && <button className="secondary-button" onClick={() => setAction('due-date')}>{locale === 'id' ? 'Ubah tanggal tenggat' : 'Change due date'}</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && !hasUnresolvedInternalProcurement && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
       {action === 'workflow' && <WorkflowActionForm order={order as WorkOrder} currentUser={currentUser} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
-      {action === 'vendor' && <VendorActionForm order={order} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
+      {action === 'vendor' && <VendorActionForm order={order} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'proposal-decision' && <ProposalDecisionForm order={order} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'condition' && <ConditionActionForm order={order as WorkOrder} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'due-date' && <DueDateActionForm order={order as WorkOrder} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
@@ -197,12 +209,34 @@ export default function App() {
   const [showApprovals, setShowApprovals] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showReports, setShowReports] = useState(false);
-  const [showWorkLists, setShowWorkLists] = useState(false);
+  const [primaryPage, setPrimaryPage] = useState<'work-orders' | 'work-lists'>(() => new URLSearchParams(window.location.search).get('view') === 'work-lists' ? 'work-lists' : 'work-orders');
 
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [pushStatus, setPushStatus] = useState<'idle' | 'subscribing' | 'subscribed' | 'unsupported' | 'unavailable' | 'denied' | 'failed'>('idle');
   const deferredQuery = useDeferredValue(query.toLowerCase());
   const t = translator(locale);
+  const urlSyncController = useRef<AbortController | null>(null);
+
+  const syncFromUrl = useCallback(async () => {
+    urlSyncController.current?.abort();
+    const controller = new AbortController();
+    urlSyncController.current = controller;
+    const params = new URLSearchParams(window.location.search);
+    setPrimaryPage(params.get('view') === 'work-lists' ? 'work-lists' : 'work-orders');
+    const workOrderId = params.get('workOrder');
+    if (!workOrderId) {
+      setSelected(null);
+      return;
+    }
+    try {
+      const order = await api<Order>(`/work-orders/${workOrderId}`, { signal: controller.signal });
+      if (!controller.signal.aborted) setSelected(order);
+    } catch (caught) {
+      if (controller.signal.aborted) return;
+      setSelected(null);
+      if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+    }
+  }, []);
 
   const loadReferences = async () => setReferences(await api<ReferenceData>('/reference-data'));
 
@@ -228,26 +262,45 @@ export default function App() {
         localStorage.setItem('woko-locale', effectiveLocale); setLocale(effectiveLocale);
         setCurrentUser({ ...user, preferredLocale: effectiveLocale }); setReferences(loadedReferences); setOrders(loadedOrders); setUnreadNotifications(unread.count); setAuthState('authenticated');
         const startupParams = new URLSearchParams(window.location.search);
-        if (startupParams.get('view') === 'work-lists') setShowWorkLists(true);
         if (startupParams.get('digest')) setShowNotifications(true);
-        const workOrderId = startupParams.get('workOrder');
-        if (workOrderId) {
-          try { setSelected(await api<Order>(`/work-orders/${workOrderId}`)); } catch { /* Keep the work-order list available when a deep link is stale. */ }
-        }
+        await syncFromUrl();
       })
       .catch((caught) => {
         if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
-        else { setStartupError(caught instanceof Error ? caught.message : 'The application could not be loaded.'); setAuthState('error'); }
+        else { setStartupError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Aplikasi tidak dapat dimuat.' : 'The application could not be loaded.')); setAuthState('error'); }
       });
-  }, []);
+  }, [syncFromUrl]);
+
+  useEffect(() => {
+    const handlePopState = () => void syncFromUrl();
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      urlSyncController.current?.abort();
+    };
+  }, [syncFromUrl]);
+
+  const navigatePrimaryPage = (page: 'work-orders' | 'work-lists') => {
+    urlSyncController.current?.abort();
+    const url = new URL(window.location.href);
+    if (page === 'work-lists') url.searchParams.set('view', 'work-lists');
+    else url.searchParams.delete('view');
+    url.searchParams.delete('workOrder');
+    window.history.pushState({}, '', url);
+    setSelected(null);
+    setPrimaryPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const openOrder = async (order: Order) => {
+    urlSyncController.current?.abort();
     setSelected(order);
 
     try { setSelected(await api<Order>(`/work-orders/${order.id}`)); } catch { /* Keep list data visible. */ }
   };
 
   const deleteOrder = async (order: Order) => {
+    urlSyncController.current?.abort();
     await api(`/work-orders/${order.id}`, { method: 'DELETE' });
     setOrders((current) => current.filter((item) => item.id !== order.id));
     setSelected(null);
@@ -268,9 +321,9 @@ export default function App() {
 
   const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => undefined); setCurrentUser(null); setAuthState('unauthenticated'); };
   const loginError = new URLSearchParams(window.location.search).get('error') ?? undefined;
-  if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>Checking your session…</p></section></main>;
-  if (authState === 'error') return <StartupErrorScreen message={startupError} onRetry={() => window.location.reload()} />;
-  if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} />;
+  if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>{locale === 'id' ? 'Memeriksa sesi Anda…' : 'Checking your session…'}</p></section></main>;
+  if (authState === 'error') return <StartupErrorScreen message={startupError} locale={locale} onRetry={() => window.location.reload()} />;
+  if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} locale={locale} />;
 
   const managerAccess = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const visibleOrders = managerAccess && workView === 'mine'
@@ -288,46 +341,47 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a>
-      <nav aria-label="Primary"><button className="nav-item nav-button active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /> {t('workOrders')}</button><button className="nav-item nav-button" onClick={() => setShowWorkLists(true)}><ClipboardCheck /> Work Lists</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
+      <nav aria-label={locale === 'id' ? 'Navigasi utama' : 'Primary navigation'}><button className={`nav-item nav-button${primaryPage === 'work-orders' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /> {t('workOrders')}</button><button className={`nav-item nav-button${primaryPage === 'work-lists' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /> {locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
       <div className="sidebar-footer"><button className="quiet-language-button" onClick={changeLocale} title={t('language')}><Languages /> {locale === 'id' ? 'English' : 'Bahasa Indonesia'}</button><div className="sidebar-user"><Avatar name={currentUser.fullName} photoUrl={currentUser.profilePhotoUrl} /><strong>{currentUser.fullName}</strong></div></div>
     </aside>
 
     <main id="top">
       <header className="mobile-header"><button className="icon-button mobile-language-button" aria-label={t('language')} onClick={changeLocale}><Languages /></button><a className="brand compact" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a><button className="icon-button notification-button" aria-label={t('notifications')} onClick={() => setShowNotifications(true)}><Bell />{unreadNotifications > 0 && <span>{unreadNotifications}</span>}</button></header>
       <div className="page-content">
-        <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{t('workOrders')}</h1><p>{t('overview')}</p></div><div className="header-actions">{canCreate && <button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button>}</div></div>
+        {primaryPage === 'work-orders' ? <>
+          <div className="page-header"><div><span className="eyebrow">{t('appSubtitle')}</span><h1>{t('workOrders')}</h1><p>{t('overview')}</p></div><div className="header-actions">{canCreate && <button className="primary-button" onClick={() => setShowCreate(true)} disabled={!references}><Plus /> {t('create')}</button>}</div></div>
 
-        {pushStatus !== 'subscribed' && <section className="push-notification-prompt" aria-label={t('enablePushNotifications')}><div><strong>{t('enablePushNotifications')}</strong><p>{pushStatus === 'denied' ? t('pushNotificationsDenied') : pushStatus === 'unavailable' ? t('pushNotificationsUnavailable') : pushStatus === 'unsupported' ? t('pushNotificationsUnsupported') : pushStatus === 'failed' ? t('pushNotificationsFailed') : t('pushNotificationsDescription')}</p></div>{pushStatus !== 'denied' && pushStatus !== 'unavailable' && pushStatus !== 'unsupported' && <button className="secondary-button" onClick={() => void enablePushNotifications()} disabled={pushStatus === 'subscribing'}>{pushStatus === 'subscribing' ? t('enablingPushNotifications') : t('enable')}</button>}</section>}
+          {pushStatus !== 'subscribed' && <section className="push-notification-prompt" aria-label={t('enablePushNotifications')}><div><strong>{t('enablePushNotifications')}</strong><p>{pushStatus === 'denied' ? t('pushNotificationsDenied') : pushStatus === 'unavailable' ? t('pushNotificationsUnavailable') : pushStatus === 'unsupported' ? t('pushNotificationsUnsupported') : pushStatus === 'failed' ? t('pushNotificationsFailed') : t('pushNotificationsDescription')}</p></div>{pushStatus !== 'denied' && pushStatus !== 'unavailable' && pushStatus !== 'unsupported' && <button className="secondary-button" onClick={() => void enablePushNotifications()} disabled={pushStatus === 'subscribing'}>{pushStatus === 'subscribing' ? t('enablingPushNotifications') : t('enable')}</button>}</section>}
 
-        <section className="metric-grid" aria-label={t('overview')}>
-          <article><span className="metric-icon navy"><BriefcaseBusiness /></span><span><strong>{counts.active}</strong><small>{t('active')}</small></span></article>
-          <article><span className="metric-icon red"><Clock3 /></span><span><strong>{counts.overdue}</strong><small>{t('overdue')}</small></span></article>
-          <article><span className="metric-icon gold"><ShieldAlert /></span><span><strong>{counts.blocked}</strong><small>{t('blocked')}</small></span></article>
-          <article><span className="metric-icon sage"><ClipboardCheck /></span><span><strong>{counts.review}</strong><small>{t('review')}</small></span></article>
-        </section>
+          <section className="metric-grid" aria-label={t('overview')}>
+            <article><span className="metric-icon navy"><BriefcaseBusiness /></span><span><strong>{counts.active}</strong><small>{t('active')}</small></span></article>
+            <article><span className="metric-icon red"><Clock3 /></span><span><strong>{counts.overdue}</strong><small>{t('overdue')}</small></span></article>
+            <article><span className="metric-icon gold"><ShieldAlert /></span><span><strong>{counts.blocked}</strong><small>{t('blocked')}</small></span></article>
+            <article><span className="metric-icon sage"><ClipboardCheck /></span><span><strong>{counts.review}</strong><small>{t('review')}</small></span></article>
+          </section>
 
-        {managerAccess && <div className="work-scope-control" aria-label="Work-order scope"><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}>{t('allWork')}</button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}>{t('myWork')}</button></div>}
-        <div className="toolbar"><label className="search-field"><Search /><span className="sr-only">{t('search')}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label><button className="filter-button"><Filter /> <span>{t('filter')}</span></button></div>
+          {managerAccess && <div className="work-scope-control" aria-label={locale === 'id' ? 'Cakupan pekerjaan' : 'Work-order scope'}><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}>{t('allWork')}</button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}>{t('myWork')}</button></div>}
+          <div className="toolbar"><label className="search-field"><Search /><span className="sr-only">{t('search')}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label><button className="filter-button"><Filter /> <span>{t('filter')}</span></button></div>
 
-        <div className="work-sections" id="work">
-          {!filtered.length && <p className="empty-work">{t('noWork')}</p>}
-          {groups.map((group) => {
-            const groupOrders = filtered.filter((order) => order.deadlineGroup === group);
-            if (!groupOrders.length) return null;
-            return <section className="work-section" key={group}><header><span className={`section-indicator section-${group.toLowerCase()}`} /><h2>{t(group)}</h2><span className="section-count">{groupOrders.length}</span><button className="icon-button small" aria-label={`Collapse ${t(group)}`}><ChevronDown /></button></header><div className="card-grid">{groupOrders.map((order) => <WorkOrderCard key={order.id} order={order} locale={locale} onOpen={() => openOrder(order)} />)}</div></section>;
-          })}
-        </div>
+          <div className="work-sections" id="work">
+            {!filtered.length && <p className="empty-work">{t('noWork')}</p>}
+            {groups.map((group) => {
+              const groupOrders = filtered.filter((order) => order.deadlineGroup === group);
+              if (!groupOrders.length) return null;
+              return <section className="work-section" key={group}><header><span className={`section-indicator section-${group.toLowerCase()}`} /><h2>{t(group)}</h2><span className="section-count">{groupOrders.length}</span><button className="icon-button small" aria-label={`${locale === 'id' ? 'Ciutkan' : 'Collapse'} ${t(group)}`}><ChevronDown /></button></header><div className="card-grid">{groupOrders.map((order) => <WorkOrderCard key={order.id} order={order} locale={locale} onOpen={() => openOrder(order)} />)}</div></section>;
+            })}
+          </div>
+        </> : <WorkListsView currentUser={currentUser} locale={locale} />}
       </div>
     </main>
 
-    {canCreate && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
-    <nav className="bottom-nav" aria-label="Mobile navigation"><button className="active" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button onClick={() => setShowWorkLists(true)}><ClipboardCheck /><span>Work Lists</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
+    {canCreate && primaryPage === 'work-orders' && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
+    <nav className="bottom-nav" aria-label={locale === 'id' ? 'Navigasi seluler' : 'Mobile navigation'}><button className={primaryPage === 'work-orders' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button className={primaryPage === 'work-lists' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /><span>{locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
-    {showOrganizationSettings && managerAccess && references && <OrganizationSettings references={references} administrator={currentUser.roles.includes('ADMINISTRATOR')} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
+    {showOrganizationSettings && managerAccess && references && <OrganizationSettings references={references} administrator={currentUser.roles.includes('ADMINISTRATOR')} locale={locale} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
-    {showNotifications && <NotificationsView onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('digest'); window.history.replaceState({}, '', url); setShowNotifications(false); }} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
-    {showReports && <ReportsView onClose={() => setShowReports(false)} />}
-    {showWorkLists && <WorkListsView currentUser={currentUser} onClose={() => setShowWorkLists(false)} />}
+    {showNotifications && <NotificationsView locale={locale} onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('digest'); window.history.replaceState({}, '', url); setShowNotifications(false); }} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
+    {showReports && <ReportsView locale={locale} onClose={() => setShowReports(false)} />}
 
     {showCreate && references && <div className="sheet-backdrop" onMouseDown={() => setShowCreate(false)}><div onMouseDown={(event) => event.stopPropagation()}><CreateWorkOrderForm references={references} currentUser={currentUser} locale={locale} onClose={() => setShowCreate(false)} onCreated={async (id) => { setShowCreate(false); await loadOrders(); setSelected(await api<Order>(`/work-orders/${id}`)); }} /></div></div>}
   </div>;

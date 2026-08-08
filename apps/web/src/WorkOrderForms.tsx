@@ -38,6 +38,45 @@ const priorityLabels: Record<Locale, Record<string, string>> = {
   en: { CRITICAL: 'Critical', HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' },
 };
 
+const conditionLabels: Record<Locale, Record<string, string>> = {
+  id: { ON_TRACK: 'Sesuai rencana', AT_RISK: 'Perlu perhatian', BLOCKED: 'Terhambat' },
+  en: { ON_TRACK: 'On track', AT_RISK: 'Needs attention', BLOCKED: 'Blocked' },
+};
+
+const blockerCategoryLabels: Record<Locale, Record<string, string>> = {
+  id: { DEPENDENCY: 'Ketergantungan', MATERIALS: 'Material', VENDOR: 'Vendor', ACCESS: 'Akses', BUDGET: 'Anggaran', SAFETY: 'Keselamatan', APPROVAL: 'Persetujuan', OTHER: 'Lainnya' },
+  en: { DEPENDENCY: 'Dependency', MATERIALS: 'Materials', VENDOR: 'Vendor', ACCESS: 'Access', BUDGET: 'Budget', SAFETY: 'Safety', APPROVAL: 'Approval', OTHER: 'Other' },
+};
+
+const evidenceTypeLabels: Record<Locale, Record<string, string>> = {
+  id: { INITIAL: 'Awal', PROGRESS: 'Progres', PROPOSAL: 'Proposal', COMPLETION: 'Penyelesaian' },
+  en: { INITIAL: 'Initial', PROGRESS: 'Progress', PROPOSAL: 'Proposal', COMPLETION: 'Completion' },
+};
+
+const driveStatusLabels: Record<Locale, Record<string, string>> = {
+  id: { PENDING: 'Menunggu', PROVISIONING: 'Menyiapkan', COMPLETE: 'Siap', FAILED: 'Gagal' },
+  en: { PENDING: 'Pending', PROVISIONING: 'Preparing', COMPLETE: 'Ready', FAILED: 'Failed' },
+};
+
+const procurementStatusLabels: Record<Locale, Record<string, string>> = {
+  id: { NOT_REQUIRED: 'Tidak diperlukan', PROPOSAL_REQUIRED: 'Proposal diperlukan', SUBMITTED: 'Diajukan', APPROVED: 'Disetujui', REJECTED: 'Ditolak', REVISION_REQUIRED: 'Perlu revisi' },
+  en: { NOT_REQUIRED: 'Not required', PROPOSAL_REQUIRED: 'Proposal required', SUBMITTED: 'Submitted', APPROVED: 'Approved', REJECTED: 'Rejected', REVISION_REQUIRED: 'Revision required' },
+};
+
+const procurementDecisionLabels: Record<Locale, Record<string, string>> = {
+  id: { APPROVED: 'Setujui', REJECTED: 'Tolak', REVISION_REQUIRED: 'Minta revisi' },
+  en: { APPROVED: 'Approve', REJECTED: 'Reject', REVISION_REQUIRED: 'Request revision' },
+};
+
+function persistedLocale(): Locale {
+  if (typeof window === 'undefined') return 'en';
+  return window.localStorage.getItem('woko-locale') === 'id' ? 'id' : 'en';
+}
+
+function localizedLabel(labels: Record<Locale, Record<string, string>>, value: string, locale: Locale) {
+  return labels[locale][value] ?? value.replaceAll('_', ' ').toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
+}
+
 function optionLabel(code: string, configuredLabel: string, locale: Locale) {
   return locale === 'id' && defaultOptionLabels[code] === configuredLabel ? indonesianOptionLabels[code] ?? configuredLabel : configuredLabel;
 }
@@ -183,7 +222,7 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
       <Field label={t('description')} required><textarea value={data.description} onChange={(event) => set('description', event.target.value)} minLength={10} rows={5} required /></Field>
       <Field label={t('priority')} required><select value={data.priority} onChange={(event) => set('priority', event.target.value)}>{priorities.map((priority) => <option key={priority} value={priority}>{priorityLabels[locale][priority]}</option>)}</select></Field>
       <Field label={t('workType')} required><select value={data.workType} onChange={(event) => { const workType = event.target.value; set('workType', workType); if (workType === 'VENDOR') setWorkerIds([]); }}>{workTypeOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
-      {data.workType === 'VENDOR' && <small>Vendor work does not use internal workers.</small>}
+      {data.workType === 'VENDOR' && <small>{locale === 'id' ? 'Pekerjaan vendor tidak menggunakan pekerja internal.' : 'Vendor work does not use internal workers.'}</small>}
     </div>,
     <div className="form-grid" key="location">
       <Field label={t('campus')} required><select value={data.campusId} onChange={(event) => { const campusId = event.target.value; const buildingId = references.buildings.find((building) => building.campus_id === campusId)?.id ?? ''; setSelectedLocationIds([]); setData((current) => ({ ...current, campusId, buildingId, locationOptionId: '', floor: '', roomOrArea: '' })); }}>{references.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select></Field>
@@ -194,7 +233,7 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
     </div>,
     <div className="form-grid" key="responsibility">
       <PeoplePicker users={picUsers} selected={assigneeIds} onChange={changeAssignees} label={`${t('pic')} *`} />
-      {data.workType === 'INTERNAL' && <PeoplePicker users={workerUsers} selected={workerIds} onChange={changeWorkers} label="Workers" />}
+      {data.workType === 'INTERNAL' && <PeoplePicker users={workerUsers} selected={workerIds} onChange={changeWorkers} label={locale === 'id' ? 'Pekerja' : 'Workers'} />}
       <Field label={t('reviewer')}><select value={data.reviewerId} onChange={(event) => changeReviewer(event.target.value)}><option value="">{t('defaultManager')}</option>{reviewerUsers.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}</select></Field>
       <PeoplePicker users={overseerUsers} selected={overseerIds} onChange={changeOverseers} label={t('overseers')} />
       <Field label={t('executionWindow')}><select value={data.executionWindow} onChange={(event) => set('executionWindow', event.target.value)}>{executionWindowOptions.map((option) => <option key={option.code} value={option.code}>{optionLabel(option.code, option.label, locale)}</option>)}</select></Field>
@@ -272,7 +311,7 @@ export function ParticipantsActionForm({ order, references, locale, onClose, onC
     <header><div><span>{t('managerAction')}</span><h3>{t('editParticipants')}</h3></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
     <div className="form-grid compact">
       <PeoplePicker users={picUsers} selected={assigneeIds} onChange={changeAssignees} label={`${t('pic')} *`} />
-      {order.work_type === 'INTERNAL' && <PeoplePicker users={workerUsers} selected={workerIds} onChange={changeWorkers} label="Workers" />}
+      {order.work_type === 'INTERNAL' && <PeoplePicker users={workerUsers} selected={workerIds} onChange={changeWorkers} label={locale === 'id' ? 'Pekerja' : 'Workers'} />}
       <Field label={t('reviewer')}><select value={reviewerId} onChange={(event) => changeReviewer(event.target.value)}><option value="">{t('defaultManager')}</option>{reviewerUsers.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}</select></Field>
       <PeoplePicker users={overseerUsers} selected={overseerIds} onChange={changeOverseers} label={t('overseers')} />
       <Field label={t('reasonForChange')} required><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} required /></Field>
@@ -323,13 +362,13 @@ export function ConditionActionForm({ order, locale, onClose, onChanged }: Omit<
       {order.condition !== 'ON_TRACK' && <button type="button" className={condition === 'ON_TRACK' ? 'active' : ''} onClick={() => setCondition('ON_TRACK')}>{copy.resolved}</button>}
     </div>
     <div className="form-grid compact">
-      {condition === 'BLOCKED' && <Field label={copy.blockerCategory} required><select value={blockerCategory} onChange={(event) => setBlockerCategory(event.target.value as typeof blockerCategory)}>{blockerCategories.map((category) => <option key={category} value={category}>{category.replaceAll('_', ' ')}</option>)}</select></Field>}
+      {condition === 'BLOCKED' && <Field label={copy.blockerCategory} required><select value={blockerCategory} onChange={(event) => setBlockerCategory(event.target.value as typeof blockerCategory)}>{blockerCategories.map((category) => <option key={category} value={category}>{localizedLabel(blockerCategoryLabels, category, locale)}</option>)}</select></Field>}
       {(condition === 'AT_RISK' || condition === 'BLOCKED') && <Field label={copy.happening} required hint={copy.impact}><textarea rows={4} value={explanation} onChange={(event) => { setExplanation(event.target.value); setExpectedImpact(event.target.value); }} minLength={3} required /></Field>}
       {condition === 'BLOCKED' && <Field label={copy.resolutionDate} required><input type="date" value={expectedResolutionDate} onChange={(event) => setExpectedResolutionDate(event.target.value)} required /></Field>}
       {condition === 'ON_TRACK' && <Field label={copy.resolvedHow} required><textarea rows={4} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} minLength={3} required /></Field>}
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting}>{submitting ? copy.saving : condition === 'ON_TRACK' ? copy.resolve : `${copy.mark} ${condition.replaceAll('_', ' ').toLowerCase()}`}</button></footer>
+    <footer><button className="primary-button" disabled={submitting}>{submitting ? copy.saving : condition === 'ON_TRACK' ? copy.resolve : `${copy.mark} ${localizedLabel(conditionLabels, condition, locale).toLowerCase()}`}</button></footer>
   </form>;
 }
 
@@ -361,6 +400,10 @@ export function DueDateActionForm({ order, locale, onClose, onChanged }: Omit<Wo
 }
 
 export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFormProps, 'order' | 'currentUser' | 'onChanged'>) {
+  const locale: Locale = currentUser.preferredLocale;
+  const copy = locale === 'id'
+    ? { title: 'Bukti berkas', intro: 'Catatan awal, progres, proposal, dan penyelesaian disimpan Woko dalam folder Drive pribadi untuk pekerjaan ini.', retryFailed: 'Gagal mencoba kembali penyiapan folder.', uploadFailed: 'Gagal mengunggah berkas.', linkFailed: 'Berkas Drive tidak dapat ditautkan.', confirmLink: (name: string) => `Tautkan “${name}” ke pekerjaan ini?\n\nWoko akan memberikan akses edit kepada semua orang di kartu pekerjaan ini dan membuat pintasan di folder proyek pribadi. Berkas asli tidak akan dipindahkan atau disalin.`, retry: 'Coba lagi', evidenceType: 'Jenis bukti', chooseFile: 'Pilih berkas', uploadFile: 'Pilih berkas bukti untuk diunggah', upload: 'Unggah', uploadProgress: (value: number) => `Progres unggahan ${value}%`, chooseDrive: 'Pilih dari Google Drive', driveHint: 'Bagikan dengan layanan Drive Woko dan buat pintasan proyek pribadi', limits: `Berkas asli tetap di tempatnya. Semua orang di kartu pekerjaan mendapat akses edit; layanan Drive Woko menjaga daftar editor tersebut dan menyimpan pintasan di folder proyek pribadi. Maksimum ${evidenceRules.maxFilesPerType} berkas per jenis bukti dan ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per berkas yang diunggah.`, noEvidence: 'Belum ada bukti berkas.', uploaded: 'Diunggah', shortcut: 'Pintasan Drive', moved: 'Dipindahkan dari Drive Saya', copied: 'Disalin dari Drive' }
+    : { title: 'File evidence', intro: 'Initial, progress, proposal, and completion records are stored by Woko in a private work-order Drive folder.', retryFailed: 'Provisioning retry failed.', uploadFailed: 'Upload failed.', linkFailed: 'Drive file could not be linked.', confirmLink: (name: string) => `Link “${name}” to this project?\n\nWoko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file will not be moved or copied.`, retry: 'Retry', evidenceType: 'Evidence type', chooseFile: 'Choose file', uploadFile: 'Choose an evidence file to upload', upload: 'Upload', uploadProgress: (value: number) => `Upload ${value}%`, chooseDrive: 'Choose from Google Drive', driveHint: 'Share with the Woko Drive worker and create a private project shortcut', limits: `Your original file stays in place. Everyone on the work card receives edit access; the Drive worker maintains that editor list and stores a shortcut in the private project folder. Maximum ${evidenceRules.maxFilesPerType} files per evidence type and ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per uploaded file.`, noEvidence: 'No file evidence added yet.', uploaded: 'Uploaded', shortcut: 'Drive shortcut', moved: 'Transferred from My Drive', copied: 'Copied from Drive' };
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const canUpload = false;
   const [evidenceType, setEvidenceType] = useState<EvidenceType>('PROGRESS');
@@ -372,7 +415,7 @@ export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFo
   const retry = async () => {
     setError(''); setSubmitting(true);
     try { await api(`/work-orders/${order.id}/drive/retry`, { method: 'POST' }); await onChanged(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Provisioning retry failed.'); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : copy.retryFailed); }
     finally { setSubmitting(false); }
   };
   const upload = async () => {
@@ -385,35 +428,39 @@ export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFo
       data.append('file', file);
       await uploadWithProgress(`/work-orders/${order.id}/attachments/upload`, data, setProgress);
       setFile(null); setProgress(100); await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Upload failed.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : copy.uploadFailed); }
     finally { setSubmitting(false); }
   };
   const transferFromDrive = async (selected: DriveBrowserItem, accessToken: string) => {
-    if (!window.confirm(`Link “${selected.name}” to this project?\n\nWoko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file will not be moved or copied.`)) return;
+    if (!window.confirm(copy.confirmLink(selected.name))) return;
     setShowDriveBrowser(false); setError(''); setSubmitting(true);
     try {
       await api(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, sourceDriveFileId: selected.id, expectedVersion: order.version }) });
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Drive file could not be linked.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : copy.linkFailed); }
     finally { setSubmitting(false); }
   };
   return <section className="evidence-section">
-    <div className="evidence-heading"><div><h3>File evidence</h3><p>Initial, progress, proposal, and completion records are stored by Woko in a private work-order Drive folder.</p></div></div>
-    <div className={`drive-status drive-status-${order.drive_provisioning_status.toLowerCase()}`}><strong>Google Drive: {order.drive_provisioning_status}</strong>{order.drive_provisioning_error && <span>{order.drive_provisioning_error}</span>}{order.drive_provisioning_status === 'FAILED' && isManager && <button type="button" className="secondary-button" onClick={retry} disabled={submitting}><RotateCcw /> Retry</button>}</div>
+    <div className="evidence-heading"><div><h3>{copy.title}</h3><p>{copy.intro}</p></div></div>
+    <div className={`drive-status drive-status-${order.drive_provisioning_status.toLowerCase()}`}><strong>Google Drive: {localizedLabel(driveStatusLabels, order.drive_provisioning_status, locale)}</strong>{order.drive_provisioning_error && <span>{order.drive_provisioning_error}</span>}{order.drive_provisioning_status === 'FAILED' && isManager && <button type="button" className="secondary-button" onClick={retry} disabled={submitting}><RotateCcw /> {copy.retry}</button>}</div>
     {canUpload && order.drive_provisioning_status === 'COMPLETE' && <div className="evidence-controls">
-      <Field label="Evidence type"><select value={evidenceType} onChange={(event) => setEvidenceType(event.target.value as EvidenceType)}>{evidenceTypes.map((type) => <option key={type} value={type}>{type}</option>)}</select></Field>
-      <div className="upload-row"><label className="file-picker"><FileUp /><span>{file?.name ?? 'Choose file'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="primary-button" onClick={upload} disabled={!file || submitting}>Upload</button></div>
-      {submitting && progress > 0 && <div className="upload-progress" aria-label={`Upload ${progress}%`}><span style={{ width: `${progress}%` }} /></div>}
-      <button type="button" className="drive-browse-button" onClick={() => setShowDriveBrowser(true)} disabled={submitting}><FolderSearch /> Choose from Google Drive <small>Share with the Woko Drive worker and create a private project shortcut</small></button>
-      <small>Your original file stays in place. Everyone on the work card receives edit access; the Drive worker maintains that editor list and stores a shortcut in the private project folder. Maximum {evidenceRules.maxFilesPerType} files per evidence type and {Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per uploaded file.</small>
+      <Field label={copy.evidenceType}><select value={evidenceType} onChange={(event) => setEvidenceType(event.target.value as EvidenceType)}>{evidenceTypes.map((type) => <option key={type} value={type}>{localizedLabel(evidenceTypeLabels, type, locale)}</option>)}</select></Field>
+      <div className="upload-row"><label className="file-picker"><FileUp /><span>{file?.name ?? copy.chooseFile}</span><input type="file" aria-label={copy.uploadFile} accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="primary-button" onClick={upload} disabled={!file || submitting}>{copy.upload}</button></div>
+      {submitting && progress > 0 && <div className="upload-progress" aria-label={copy.uploadProgress(progress)}><span style={{ width: `${progress}%` }} /></div>}
+      <button type="button" className="drive-browse-button" onClick={() => setShowDriveBrowser(true)} disabled={submitting}><FolderSearch /> {copy.chooseDrive} <small>{copy.driveHint}</small></button>
+      <small>{copy.limits}</small>
     </div>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    <div className="evidence-list">{order.attachments?.length ? order.attachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><span><strong>{attachment.file_name}</strong><small>{attachment.evidence_type} · {attachment.source_type === 'UPLOAD' ? 'Uploaded' : attachment.source_type === 'DRIVE_SHORTCUT' ? 'Drive shortcut' : attachment.source_type === 'DRIVE_MOVE' ? 'Transferred from My Drive' : 'Copied from Drive'} · {attachment.uploaded_by}</small></span><ExternalLink /></a>) : <p className="muted">No file evidence added yet.</p>}</div>
-    {showDriveBrowser && <DriveBrowser onClose={() => setShowDriveBrowser(false)} onSelect={(selected, accessToken) => void transferFromDrive(selected, accessToken)} />}
+    <div className="evidence-list">{order.attachments?.length ? order.attachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><span><strong>{attachment.file_name}</strong><small>{localizedLabel(evidenceTypeLabels, attachment.evidence_type, locale)} · {attachment.source_type === 'UPLOAD' ? copy.uploaded : attachment.source_type === 'DRIVE_SHORTCUT' ? copy.shortcut : attachment.source_type === 'DRIVE_MOVE' ? copy.moved : copy.copied} · {attachment.uploaded_by}</small></span><ExternalLink /></a>) : <p className="muted">{copy.noEvidence}</p>}</div>
+    {showDriveBrowser && <DriveBrowser locale={locale} onClose={() => setShowDriveBrowser(false)} onSelect={(selected, accessToken) => void transferFromDrive(selected, accessToken)} />}
   </section>;
 }
 
 export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick<WorkflowFormProps, 'order' | 'currentUser' | 'onChanged'>) {
+  const locale: Locale = currentUser.preferredLocale;
+  const copy = locale === 'id'
+    ? { title: 'Pengadaan internal', intro: 'Woko mencatat pengajuan ke proses Keuangan eksternal beserta keputusan yang disampaikan.', actionFailed: 'Tindakan pengadaan gagal.', uploadFailed: 'Gagal mengunggah proposal.', linkFailed: 'Proposal dari Drive tidak dapat ditautkan.', submittedBy: 'Diajukan oleh', financeDecision: 'Keputusan Keuangan:', whyRequired: 'Mengapa pengadaan diperlukan?', markRequired: 'Tandai perlu pengadaan', uploadProposal: 'Unggah proposal pengadaan', chooseProposalFile: 'Pilih berkas proposal pengadaan untuk diunggah', upload: 'Unggah', chooseDrive: 'Pilih dari Google Drive', confirmSubmitted: 'Saya mengonfirmasi bahwa proposal ini telah diajukan melalui proses Keuangan eksternal.', recordSubmitted: 'Catat proposal telah diajukan', revisedReason: 'Alasan proposal direvisi', startRevision: 'Mulai revisi proposal', updateNotePrompt: 'Perbarui catatan pengadaan', updateNote: 'Perbarui catatan', clearReason: 'Alasan pengadaan tidak lagi diperlukan', markNotRequired: 'Tandai tidak lagi diperlukan', decisionNote: (decision: string) => `Catatan keputusan untuk ${decision}`, driveTitle: 'Pilih proposal pengadaan' }
+    : { title: 'Internal procurement', intro: 'Woko records submission to the external Finance process and its communicated decision.', actionFailed: 'Procurement action failed.', uploadFailed: 'Proposal upload failed.', linkFailed: 'Drive proposal could not be linked.', submittedBy: 'Submitted by', financeDecision: 'Finance decision:', whyRequired: 'Why is procurement required?', markRequired: 'Mark procurement required', uploadProposal: 'Upload procurement proposal', chooseProposalFile: 'Choose a procurement proposal file to upload', upload: 'Upload', chooseDrive: 'Choose from Google Drive', confirmSubmitted: 'I confirm that this proposal has been submitted through the external Finance process.', recordSubmitted: 'Record proposal submitted', revisedReason: 'Reason for the revised proposal', startRevision: 'Start revised proposal', updateNotePrompt: 'Update procurement note', updateNote: 'Update note', clearReason: 'Reason procurement is no longer required', markNotRequired: 'Mark no longer required', decisionNote: (decision: string) => `Decision note for ${decision}`, driveTitle: 'Choose procurement proposal' };
   const procurement = order.procurement;
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const isPic = order.assignees.some((person) => person.id === currentUser.id);
@@ -429,7 +476,7 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
   const run = async (path: string, body: Record<string, unknown>) => {
     setSubmitting(true); setError('');
     try { await api(`/work-orders/${order.id}/procurement-proposal${path}`, { method: path === '' ? 'PATCH' : 'POST', body: JSON.stringify({ ...body, expectedVersion: workVersion, expectedProcurementVersion: procurement.version }) }); await onChanged(); }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Procurement action failed.'); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : copy.actionFailed); }
     finally { setSubmitting(false); }
   };
   const uploadLocal = async () => {
@@ -440,7 +487,7 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
       data.append('evidenceType', 'PROPOSAL'); data.append('attachmentContext', 'INTERNAL_PROCUREMENT'); data.append('expectedVersion', String(workVersion)); data.append('file', file);
       const result = await uploadWithProgress<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/upload`, data, () => undefined);
       setAttachmentId(result.id); setWorkVersion(result.version); setFile(null);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Proposal upload failed.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : copy.uploadFailed); }
     finally { setSubmitting(false); }
   };
   const transferDrive = async (selected: DriveBrowserItem, accessToken: string) => {
@@ -448,28 +495,28 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
     try {
       const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType: 'PROPOSAL', attachmentContext: 'INTERNAL_PROCUREMENT', sourceDriveFileId: selected.id, expectedVersion: workVersion }) });
       setAttachmentId(result.id); setWorkVersion(result.version);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Drive proposal could not be linked.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : copy.linkFailed); }
     finally { setSubmitting(false); }
   };
   const documents = order.attachments?.filter((item) => item.attachment_context === 'INTERNAL_PROCUREMENT') ?? [];
   return <section className="evidence-section procurement-section">
-    <div className="evidence-heading"><div><h3>Internal procurement</h3><p>Woko records submission to the external Finance process and its communicated decision.</p></div><strong>{procurement.status.replaceAll('_', ' ')}</strong></div>
+    <div className="evidence-heading"><div><h3>{copy.title}</h3><p>{copy.intro}</p></div><strong>{localizedLabel(procurementStatusLabels, procurement.status, locale)}</strong></div>
     {procurement.requirement_note && <p>{procurement.requirement_note}</p>}
-    {procurement.submitted_at && <small>Submitted by {procurement.submitted_by_name} · {new Date(procurement.submitted_at).toLocaleString()}</small>}
-    {procurement.decision_note && <p><strong>Finance decision:</strong> {procurement.decision_note} — {procurement.decided_by_name}</p>}
+    {procurement.submitted_at && <small>{copy.submittedBy} {procurement.submitted_by_name} · {new Date(procurement.submitted_at).toLocaleString(locale === 'id' ? 'id-ID' : 'en-US')}</small>}
+    {procurement.decision_note && <p><strong>{copy.financeDecision}</strong> {procurement.decision_note} — {procurement.decided_by_name}</p>}
     {documents.length > 0 && <div className="evidence-list">{documents.map((document) => <a key={document.id} href={document.drive_url} target="_blank" rel="noreferrer"><span><strong>{document.original_file_name ?? document.file_name}</strong><small>{document.uploaded_by}</small></span><ExternalLink /></a>)}</div>}
-    {canManage && procurement.status === 'NOT_REQUIRED' && <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const note = window.prompt('Why is procurement required?'); if (note) void run('/require', { requirementNote: note }); }}>Mark procurement required</button>}
+    {canManage && procurement.status === 'NOT_REQUIRED' && <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const note = window.prompt(copy.whyRequired); if (note) void run('/require', { requirementNote: note }); }}>{copy.markRequired}</button>}
     {canManage && procurement.status !== 'NOT_REQUIRED' && procurement.status !== 'APPROVED' && <div className="evidence-controls">
-      <div className="upload-row"><label className="file-picker"><FileUp /><span>{file?.name ?? 'Upload procurement proposal'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="secondary-button" disabled={!file || submitting} onClick={() => void uploadLocal()}>Upload</button></div>
-      <button type="button" className="drive-browse-button" disabled={submitting} onClick={() => setShowDriveBrowser(true)}><FolderSearch /> Choose from Google Drive</button>
-      {(attachmentId || documents.length > 0) && ['PROPOSAL_REQUIRED', 'REVISION_REQUIRED'].includes(procurement.status) && <button type="button" className="primary-button" disabled={submitting} onClick={() => { if (window.confirm('I confirm that this proposal has been submitted through the external Finance process.')) void run('/submit', { attachmentIds: attachmentId ? [attachmentId] : documents.map((item) => item.id), confirmation: true }); }}>Record proposal submitted</button>}
-      {procurement.status === 'REJECTED' && <button type="button" className="primary-button" disabled={submitting} onClick={() => { const note = window.prompt('Reason for the revised proposal', procurement.requirement_note ?? ''); if (note) void run('/require', { requirementNote: note }); }}>Start revised proposal</button>}
-      <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const note = window.prompt('Update procurement note', procurement.requirement_note ?? ''); if (note) void run('', { requirementNote: note }); }}>Update note</button>
-      <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const reason = window.prompt('Reason procurement is no longer required'); if (reason) void run('/clear', { reason }); }}>Mark no longer required</button>
+      <div className="upload-row"><label className="file-picker"><FileUp /><span>{file?.name ?? copy.uploadProposal}</span><input type="file" aria-label={copy.chooseProposalFile} accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label><button type="button" className="secondary-button" disabled={!file || submitting} onClick={() => void uploadLocal()}>{copy.upload}</button></div>
+      <button type="button" className="drive-browse-button" disabled={submitting} onClick={() => setShowDriveBrowser(true)}><FolderSearch /> {copy.chooseDrive}</button>
+      {(attachmentId || documents.length > 0) && ['PROPOSAL_REQUIRED', 'REVISION_REQUIRED'].includes(procurement.status) && <button type="button" className="primary-button" disabled={submitting} onClick={() => { if (window.confirm(copy.confirmSubmitted)) void run('/submit', { attachmentIds: attachmentId ? [attachmentId] : documents.map((item) => item.id), confirmation: true }); }}>{copy.recordSubmitted}</button>}
+      {procurement.status === 'REJECTED' && <button type="button" className="primary-button" disabled={submitting} onClick={() => { const note = window.prompt(copy.revisedReason, procurement.requirement_note ?? ''); if (note) void run('/require', { requirementNote: note }); }}>{copy.startRevision}</button>}
+      <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const note = window.prompt(copy.updateNotePrompt, procurement.requirement_note ?? ''); if (note) void run('', { requirementNote: note }); }}>{copy.updateNote}</button>
+      <button type="button" className="secondary-button" disabled={submitting} onClick={() => { const reason = window.prompt(copy.clearReason); if (reason) void run('/clear', { reason }); }}>{copy.markNotRequired}</button>
     </div>}
-    {isManager && procurement.status === 'SUBMITTED' && <div className="segmented-control">{(['APPROVED', 'REJECTED', 'REVISION_REQUIRED'] as const).map((decision) => <button type="button" key={decision} disabled={submitting} onClick={() => { const decisionNote = window.prompt(`Decision note for ${decision.replaceAll('_', ' ')}`); if (decisionNote) void run('/decision', { decision, decisionNote }); }}>{decision.replaceAll('_', ' ')}</button>)}</div>}
+    {isManager && procurement.status === 'SUBMITTED' && <div className="segmented-control">{(['APPROVED', 'REJECTED', 'REVISION_REQUIRED'] as const).map((decision) => { const label = localizedLabel(procurementDecisionLabels, decision, locale); return <button type="button" key={decision} disabled={submitting} onClick={() => { const decisionNote = window.prompt(copy.decisionNote(label.toLowerCase())); if (decisionNote) void run('/decision', { decision, decisionNote }); }}>{label}</button>; })}</div>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    {showDriveBrowser && <DriveBrowser title="Choose procurement proposal" onClose={() => setShowDriveBrowser(false)} onSelect={(selected, accessToken) => void transferDrive(selected, accessToken)} />}
+    {showDriveBrowser && <DriveBrowser locale={locale} title={copy.driveTitle} onClose={() => setShowDriveBrowser(false)} onSelect={(selected, accessToken) => void transferDrive(selected, accessToken)} />}
   </section>;
 }
 
@@ -511,10 +558,10 @@ export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose,
     setUploadProgress(0);
     if (!file) { setProgressImage(null); return; }
     if (!evidenceRules.allowedMimeTypes.includes(file.type as (typeof evidenceRules.allowedMimeTypes)[number]) || !file.type.startsWith('image/')) {
-      setProgressImage(null); setError('Choose a JPG, PNG, WebP, HEIC, or HEIF image.'); return;
+      setProgressImage(null); setError(locale === 'id' ? 'Pilih gambar JPG, PNG, WebP, HEIC, atau HEIF.' : 'Choose a JPG, PNG, WebP, HEIC, or HEIF image.'); return;
     }
     if (file.size > evidenceRules.maxFileSizeBytes) {
-      setProgressImage(null); setError(`Image must be smaller than ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB.`); return;
+      setProgressImage(null); setError(locale === 'id' ? `Ukuran gambar harus kurang dari ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB.` : `Image must be smaller than ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB.`); return;
     }
     setError(''); setProgressImage(file);
   };
@@ -525,7 +572,7 @@ export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose,
       const evidenceType = isMidProgressUpdate ? 'PROGRESS' : 'COMPLETION';
       const result = await api<{ id: string; version: number }>(`/work-orders/${order.id}/attachments/drive-transfer`, { method: 'POST', headers: { 'X-Google-Drive-Token': accessToken }, body: JSON.stringify({ evidenceType, attachmentContext: context, sourceDriveFileId: selected.id, expectedVersion: order.version }) });
       setUploadedAttachmentId(result.id); setUploadedImageVersion(result.version); setUploadedAsCompletion(!isMidProgressUpdate);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Drive attachment could not be linked.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Lampiran dari Drive tidak dapat ditautkan.' : 'Drive attachment could not be linked.')); }
     finally { setSubmitting(false); }
   };
   const submit = async (event: FormEvent) => {
@@ -565,7 +612,7 @@ export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose,
     <header><div><span>{progress.label}{progress.sublabel ? ` · ${progress.sublabel}` : ''}</span><h3>{canReopen ? copy.reopenCompleted : order.workflow_stage === 'REVIEW' ? copy.finalCheck : order.workflow_stage === 'SCHEDULED' ? (locale === 'id' ? 'Mulai dengan pembaruan progres' : 'Start with a progress update') : copy.updateProgress}</h3><p className="action-intro">{order.workflow_stage === 'SCHEDULED' ? (locale === 'id' ? 'Pembaruan pertama otomatis memindahkan pekerjaan ini ke Dikerjakan.' : 'The first update automatically moves this work to In Progress.') : isInProgressUpdate ? (locale === 'id' ? 'Simpan pembaruan lain atau ajukan pekerjaan untuk peninjauan penyelesaian.' : 'Save another update or submit the work for completion review.') : copy.updateIntro}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
     {isInProgressUpdate && order.workflow_stage === 'IN_PROGRESS' && <div className="segmented-control progress-mode-control"><button type="button" className={progressMode === 'mid' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('mid')}>{locale === 'id' ? 'Tambah pembaruan progres' : 'Add progress update'}</button><button type="button" className={progressMode === 'complete' ? 'active' : ''} disabled={uploadedImageVersion !== null} onClick={() => setProgressMode('complete')}>{locale === 'id' ? 'Ajukan penyelesaian' : 'Submit for completion'}</button></div>}
     {(canReject || canReopen) && <div className="segmented-control">{order.status !== 'COMPLETED' && <button type="button" className={action === 'forward' ? 'active' : ''} onClick={() => setAction('forward')}>{copy.approve}</button>}{canReject && <button type="button" className={action === 'reject' ? 'active' : ''} onClick={() => setAction('reject')}>{copy.reject}</button>}{canReopen && <button type="button" className={action === 'reopen' ? 'active' : ''} onClick={() => setAction('reopen')}>{copy.reopen}</button>}</div>}
-    {vendorStructuredStage && !isManager && <p className="form-error">Use the structured vendor action for this stage.</p>}
+    {vendorStructuredStage && !isManager && <p className="form-error">{locale === 'id' ? 'Gunakan tindakan vendor terstruktur untuk tahap ini.' : 'Use the structured vendor action for this stage.'}</p>}
     <div className="form-grid compact">
       {targetStage === 'SCHEDULED' && <Field label={copy.startDate} required><input type="date" value={plannedStartDate} onChange={(event) => setPlannedStartDate(event.target.value)} required /></Field>}
 
@@ -575,18 +622,22 @@ export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose,
       {targetStage === 'COMPLETED' && hasCompletionPhotoForSubmit && <p className="evidence-confirmation"><Check /> {progressImage ? (locale === 'id' ? 'Gambar yang dipilih akan dilampirkan sebagai bukti penyelesaian.' : 'The selected image will be attached as completion evidence.') : uploadedAsCompletion ? (locale === 'id' ? 'Gambar diunggah sebagai bukti penyelesaian.' : 'The image was uploaded as completion evidence.') : (locale === 'id' ? 'Bukti foto penyelesaian telah dilampirkan.' : 'Completion photo evidence is attached.')}</p>}
       {(action === 'reject' || action === 'reopen') && <Field label={copy.reason} required><textarea rows={3} value={reason} onChange={(event) => setReason(event.target.value)} required /></Field>}
       {action !== 'reopen' && <Field label={targetStage === 'COMPLETED' ? copy.finalCheckNote : isMidProgressUpdate ? copy.progressUpdate : targetStage === 'REVIEW' ? (locale === 'id' ? 'Ringkasan penyelesaian' : 'Completion summary') : copy.shortUpdate} required hint={isMidProgressUpdate ? (locale === 'id' ? 'Contoh: Pemasangan telah dimulai; pekerjaan kelistrikan dilanjutkan besok.' : 'Example: Installation has started; electrical work continues tomorrow.') : targetStage === 'REVIEW' ? (locale === 'id' ? 'Konfirmasikan pekerjaan yang telah diselesaikan dan detail serah terima penting.' : 'Confirm what was completed and any important handover details.') : (locale === 'id' ? 'Contoh: Komponen telah tiba dan pemasangan dimulai Senin.' : 'Example: Parts arrived and installation starts Monday.')}><textarea rows={4} value={note} onChange={(event) => setNote(event.target.value)} minLength={3} required /></Field>}
-      {canAttachProgressImage && uploadedImageVersion === null && <Field label={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? (locale === 'id' ? 'Foto penyelesaian' : 'Completion photo') : copy.progressEvidence} required={targetStage === 'REVIEW' && !hasCompletionPhoto} hint={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? (locale === 'id' ? 'Foto penyelesaian diperlukan sebelum pengajuan.' : 'A completion photo is required before submission.') : (locale === 'id' ? 'Bukti progres opsional.' : 'Optional progress evidence.')}><label className="file-picker progress-image-picker"><FileUp /><span>{progressImage?.name ?? (locale === 'id' ? 'Unggah dari perangkat' : 'Upload from device')}</span><input type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => selectProgressImage(event.target.files?.[0] ?? null)} /></label><button type="button" className="drive-browse-button" onClick={() => setShowProgressDriveBrowser(true)}><FolderSearch /> {locale === 'id' ? 'Pilih dari Google Drive' : 'Choose from Google Drive'}</button></Field>}
+      {canAttachProgressImage && uploadedImageVersion === null && <Field label={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? (locale === 'id' ? 'Foto penyelesaian' : 'Completion photo') : copy.progressEvidence} required={targetStage === 'REVIEW' && !hasCompletionPhoto} hint={targetStage === 'REVIEW' || targetStage === 'COMPLETED' ? (locale === 'id' ? 'Foto penyelesaian diperlukan sebelum pengajuan.' : 'A completion photo is required before submission.') : (locale === 'id' ? 'Bukti progres opsional.' : 'Optional progress evidence.')}><label className="file-picker progress-image-picker"><FileUp /><span>{progressImage?.name ?? (locale === 'id' ? 'Unggah dari perangkat' : 'Upload from device')}</span><input type="file" aria-label={locale === 'id' ? 'Pilih gambar bukti untuk diunggah' : 'Choose an evidence image to upload'} accept=".jpg,.jpeg,.png,.webp,.heic,.heif,image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={(event) => selectProgressImage(event.target.files?.[0] ?? null)} /></label><button type="button" className="drive-browse-button" onClick={() => setShowProgressDriveBrowser(true)}><FolderSearch /> {locale === 'id' ? 'Pilih dari Google Drive' : 'Choose from Google Drive'}</button></Field>}
       {uploadedImageVersion !== null && <p className="evidence-confirmation"><Check /> {locale === 'id' ? 'Gambar diunggah. Konfirmasikan progres untuk menyelesaikan pembaruan ini.' : 'Image uploaded. Confirm progress to finish this update.'}</p>}
       {action !== 'reopen' && order.drive_provisioning_status !== 'COMPLETE' && <p className="muted progress-image-unavailable">{locale === 'id' ? 'Gambar dapat ditambahkan setelah folder Drive proyek siap.' : 'Images can be added after the project Drive folder is ready.'}</p>}
-      {submitting && uploadProgress > 0 && uploadProgress < 100 && <div className="upload-progress" aria-label={`Upload ${uploadProgress}%`}><span style={{ width: `${uploadProgress}%` }} /></div>}
+      {submitting && uploadProgress > 0 && uploadProgress < 100 && <div className="upload-progress" aria-label={locale === 'id' ? `Progres unggahan ${uploadProgress}%` : `Upload ${uploadProgress}%`}><span style={{ width: `${uploadProgress}%` }} /></div>}
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
     <footer><button className="primary-button" disabled={submitting || (!targetStage && action !== 'reopen') || vendorStructuredStage || (order.workflow_stage === 'PROPOSAL' && targetStage === 'APPROVAL' && !hasProposalEvidence) || (targetStage === 'REVIEW' && (!hasCompletionPhotoForSubmit || Boolean(order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status))))}>{submitting ? copy.saving : action === 'reject' ? (locale === 'id' ? 'Kembalikan ke Dikerjakan' : 'Return to In Progress') : action === 'reopen' ? copy.reopenWork : isMidProgressUpdate ? copy.saveProgress : targetStage === 'REVIEW' ? (locale === 'id' ? 'Ajukan penyelesaian' : 'Submit for completion') : targetStage === 'COMPLETED' ? copy.approveCompletion : copy.confirmProgress}</button></footer>
-    {showProgressDriveBrowser && <DriveBrowser title="Choose progress evidence" onClose={() => setShowProgressDriveBrowser(false)} onSelect={(selected, accessToken) => void transferProgressDrive(selected, accessToken)} />}
+    {showProgressDriveBrowser && <DriveBrowser locale={locale} title={locale === 'id' ? 'Pilih bukti progres' : 'Choose progress evidence'} onClose={() => setShowProgressDriveBrowser(false)} onSelect={(selected, accessToken) => void transferProgressDrive(selected, accessToken)} />}
   </form>;
 }
 
-export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'>) {
+export function VendorActionForm({ order, locale: requestedLocale, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'>) {
+  const locale = requestedLocale ?? persistedLocale();
+  const copy = locale === 'id'
+    ? { preparing: 'Persiapan · 30%', updatePreparation: 'Perbarui persiapan vendor', recordProposal: 'Catat proposal vendor', sendApproval: 'Kirim proposal untuk persetujuan', intro: 'Buat pembaruan tetap singkat. Tambahkan detail komersial hanya setelah proposal tersedia.', stillPreparing: 'Masih dalam persiapan', proposalReceived: 'Proposal diterima', updateProposal: 'Perbarui proposal', readyApproval: 'Siap diajukan', shortUpdate: 'Pembaruan singkat', searchHint: 'Contoh: Dua vendor telah dihubungi; menunggu konfirmasi kunjungan lokasi.', vendorIfKnown: 'Nama vendor, jika sudah diketahui', vendorName: 'Nama vendor', quotedCost: 'Nilai penawaran', costHint: 'Masukkan total nilai proposal dalam rupiah.', proposalDocument: 'Dokumen proposal vendor', uploadDevice: 'Unggah dari perangkat', chooseProposalFile: 'Pilih dokumen proposal vendor untuk diunggah', shortcutHint: 'Pintasan pribadi akan dibuat di folder 03 Proposals saat disimpan', chooseDrive: 'Pilih dari Google Drive', driveHint: 'Bagikan dengan layanan Drive Woko dan buat pintasan', existingProposal: 'Dokumen proposal yang sudah ada telah dilampirkan.', optionalDetails: 'Tambahkan detail proposal opsional', validityDate: 'Tanggal berlaku proposal', expectedDuration: 'Perkiraan durasi pekerjaan', durationPlaceholder: 'Contoh: 5 hari kerja', proposalNotes: 'Catatan proposal', submissionNote: 'Catatan pengajuan', proposalRequired: 'Dokumen proposal diperlukan sebelum diajukan.', saving: 'Menyimpan...', saveSearch: 'Simpan pencarian vendor', submitApproval: 'Ajukan untuk persetujuan', failed: 'Tindakan vendor gagal.', driveTitle: 'Pilih proposal vendor', confirmProposal: (name: string) => `Gunakan “${name}” sebagai proposal vendor?\n\nSaat disimpan, Woko akan memberikan akses edit kepada semua orang di kartu pekerjaan ini dan membuat pintasan di folder proyek pribadi. Berkas asli tetap di tempatnya.` }
+    : { preparing: 'Preparing · 30%', updatePreparation: 'Update vendor preparation', recordProposal: 'Record vendor proposal', sendApproval: 'Send proposal for approval', intro: 'Keep the update brief. Add commercial details only when a proposal is available.', stillPreparing: 'Still preparing', proposalReceived: 'Proposal received', updateProposal: 'Update proposal', readyApproval: 'Ready for approval', shortUpdate: 'Short update', searchHint: 'Example: Contacted two vendors; waiting for site visit confirmation.', vendorIfKnown: 'Vendor name, if known', vendorName: 'Vendor name', quotedCost: 'Quoted cost', costHint: 'Enter the total proposal value in IDR.', proposalDocument: 'Vendor proposal document', uploadDevice: 'Upload from device', chooseProposalFile: 'Choose a vendor proposal document to upload', shortcutHint: 'Will create a private shortcut in 03 Proposals when saved', chooseDrive: 'Choose from Google Drive', driveHint: 'Share with the Woko Drive worker and create a shortcut', existingProposal: 'An existing proposal document is already attached.', optionalDetails: 'Add optional proposal details', validityDate: 'Proposal validity date', expectedDuration: 'Expected work duration', durationPlaceholder: 'Example: 5 working days', proposalNotes: 'Proposal notes', submissionNote: 'Submission note', proposalRequired: 'A proposal document is required before submission.', saving: 'Saving...', saveSearch: 'Save vendor search', submitApproval: 'Submit for approval', failed: 'Vendor action failed.', driveTitle: 'Choose vendor proposal', confirmProposal: (name: string) => `Use “${name}” as the vendor proposal?\n\nWhen you save, Woko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file stays in place.` };
   const [mode, setMode] = useState<'search' | 'proposal' | 'submit'>(order.workflow_stage === 'PLANNED' ? 'search' : order.workflow_stage === 'FINDING_VENDOR' ? 'proposal' : 'submit');
   const [vendorSearchNote, setVendorSearchNote] = useState('');
   const [potentialVendorName, setPotentialVendorName] = useState('');
@@ -624,26 +675,26 @@ export function VendorActionForm({ order, onClose, onChanged }: Omit<WorkflowFor
         await api(`/work-orders/${order.id}/proposal/submit`, { method: 'POST', body: JSON.stringify({ note: submissionNote, expectedVersion: order.version }) });
       }
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Vendor action failed.'); } finally { setSubmitting(false); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : copy.failed); } finally { setSubmitting(false); }
   };
   return <form className="action-panel" onSubmit={submit}>
-    <header><div><span>Preparing · 30%</span><h3>{mode === 'search' ? 'Update vendor preparation' : mode === 'proposal' ? 'Record vendor proposal' : 'Send proposal for approval'}</h3><p className="action-intro">Keep the update brief. Add commercial details only when a proposal is available.</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
-    {order.workflow_stage === 'FINDING_VENDOR' && <div className="segmented-control"><button type="button" className={mode === 'search' ? 'active' : ''} onClick={() => setMode('search')}>Still preparing</button><button type="button" className={mode === 'proposal' ? 'active' : ''} onClick={() => setMode('proposal')}>Proposal received</button></div>}
-    {order.workflow_stage === 'PROPOSAL' && <div className="segmented-control"><button type="button" className={mode === 'proposal' ? 'active' : ''} onClick={() => setMode('proposal')}>Update proposal</button><button type="button" className={mode === 'submit' ? 'active' : ''} onClick={() => setMode('submit')}>Ready for approval</button></div>}
+    <header><div><span>{copy.preparing}</span><h3>{mode === 'search' ? copy.updatePreparation : mode === 'proposal' ? copy.recordProposal : copy.sendApproval}</h3><p className="action-intro">{copy.intro}</p></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header>
+    {order.workflow_stage === 'FINDING_VENDOR' && <div className="segmented-control"><button type="button" className={mode === 'search' ? 'active' : ''} onClick={() => setMode('search')}>{copy.stillPreparing}</button><button type="button" className={mode === 'proposal' ? 'active' : ''} onClick={() => setMode('proposal')}>{copy.proposalReceived}</button></div>}
+    {order.workflow_stage === 'PROPOSAL' && <div className="segmented-control"><button type="button" className={mode === 'proposal' ? 'active' : ''} onClick={() => setMode('proposal')}>{copy.updateProposal}</button><button type="button" className={mode === 'submit' ? 'active' : ''} onClick={() => setMode('submit')}>{copy.readyApproval}</button></div>}
     {mode === 'search' && <div className="form-grid compact">
-      <Field label="Short update" required hint="Example: Contacted two vendors; waiting for site visit confirmation."><textarea rows={4} value={vendorSearchNote} onChange={(event) => { setVendorSearchNote(event.target.value); setShortlistNote(event.target.value); }} required /></Field>
-      <Field label="Vendor name, if known"><input value={potentialVendorName} onChange={(event) => setPotentialVendorName(event.target.value)} /></Field>
+      <Field label={copy.shortUpdate} required hint={copy.searchHint}><textarea rows={4} value={vendorSearchNote} onChange={(event) => { setVendorSearchNote(event.target.value); setShortlistNote(event.target.value); }} required /></Field>
+      <Field label={copy.vendorIfKnown}><input value={potentialVendorName} onChange={(event) => setPotentialVendorName(event.target.value)} /></Field>
     </div>}
     {mode === 'proposal' && <div className="form-grid compact">
-      <Field label="Vendor name" required><input value={vendorName} onChange={(event) => setVendorName(event.target.value)} required /></Field>
-      <Field label="Quoted cost" required hint={parseIdrInput(quotedCost) ? formatIdrCurrency(parseIdrInput(quotedCost)) : 'Enter the total proposal value in IDR.'}><div className="currency-input"><span>Rp</span><input inputMode="numeric" value={quotedCost} onChange={(event) => setQuotedCost(formatIdrInput(event.target.value))} placeholder="0" required /></div></Field>
-      <div className="proposal-attachment"><span>Vendor proposal document <b>*</b></span><label className="file-picker"><FileUp /><span>{localProposalFile?.name ?? 'Upload from device'}</span><input type="file" accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => { setLocalProposalFile(event.target.files?.[0] ?? null); setProposalFile(null); }} /></label>{proposalFile ? <button type="button" className="selected-drive-file" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /><span><strong>{proposalFile.name}</strong><small>Will create a private shortcut in 03 Proposals when saved</small></span></button> : <button type="button" className="drive-browse-button" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /> Choose from Google Drive <small>Share with the Woko Drive worker and create a shortcut</small></button>}{hasProposalEvidence && !proposalFile && !localProposalFile && <small className="existing-evidence-note"><Check /> An existing proposal document is already attached.</small>}</div>
-      <details className="optional-fields"><summary>Add optional proposal details</summary><div className="form-grid compact"><Field label="Proposal validity date"><input type="date" value={proposalValidityDate} onChange={(event) => setProposalValidityDate(event.target.value)} /></Field><Field label="Expected work duration"><input value={expectedWorkDuration} onChange={(event) => setExpectedWorkDuration(event.target.value)} placeholder="Example: 5 working days" /></Field><Field label="Proposal notes"><textarea rows={3} value={proposalNotes} onChange={(event) => setProposalNotes(event.target.value)} /></Field></div></details>
+      <Field label={copy.vendorName} required><input value={vendorName} onChange={(event) => setVendorName(event.target.value)} required /></Field>
+      <Field label={copy.quotedCost} required hint={parseIdrInput(quotedCost) ? formatIdrCurrency(parseIdrInput(quotedCost)) : copy.costHint}><div className="currency-input"><span>Rp</span><input inputMode="numeric" value={quotedCost} onChange={(event) => setQuotedCost(formatIdrInput(event.target.value))} placeholder="0" required /></div></Field>
+      <div className="proposal-attachment"><span>{copy.proposalDocument} <b>*</b></span><label className="file-picker"><FileUp /><span>{localProposalFile?.name ?? copy.uploadDevice}</span><input type="file" aria-label={copy.chooseProposalFile} accept={evidenceRules.allowedExtensions.map((extension) => `.${extension}`).join(',')} onChange={(event) => { setLocalProposalFile(event.target.files?.[0] ?? null); setProposalFile(null); }} /></label>{proposalFile ? <button type="button" className="selected-drive-file" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /><span><strong>{proposalFile.name}</strong><small>{copy.shortcutHint}</small></span></button> : <button type="button" className="drive-browse-button" onClick={() => setShowProposalDriveBrowser(true)}><FolderSearch /> {copy.chooseDrive} <small>{copy.driveHint}</small></button>}{hasProposalEvidence && !proposalFile && !localProposalFile && <small className="existing-evidence-note"><Check /> {copy.existingProposal}</small>}</div>
+      <details className="optional-fields"><summary>{copy.optionalDetails}</summary><div className="form-grid compact"><Field label={copy.validityDate}><input type="date" value={proposalValidityDate} onChange={(event) => setProposalValidityDate(event.target.value)} /></Field><Field label={copy.expectedDuration}><input value={expectedWorkDuration} onChange={(event) => setExpectedWorkDuration(event.target.value)} placeholder={copy.durationPlaceholder} /></Field><Field label={copy.proposalNotes}><textarea rows={3} value={proposalNotes} onChange={(event) => setProposalNotes(event.target.value)} /></Field></div></details>
     </div>}
-    {mode === 'submit' && <div className="form-grid compact"><Field label="Submission note" required><textarea rows={4} value={submissionNote} onChange={(event) => setSubmissionNote(event.target.value)} required /></Field>{!hasProposalEvidence && <p className="form-error">A proposal document is required before submission.</p>}</div>}
+    {mode === 'submit' && <div className="form-grid compact"><Field label={copy.submissionNote} required><textarea rows={4} value={submissionNote} onChange={(event) => setSubmissionNote(event.target.value)} required /></Field>{!hasProposalEvidence && <p className="form-error">{copy.proposalRequired}</p>}</div>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    <footer><button className="primary-button" disabled={submitting || (mode === 'proposal' && !hasProposalEvidence && !proposalFile && !localProposalFile) || (mode === 'submit' && !hasProposalEvidence)}>{submitting ? 'Saving...' : mode === 'search' ? 'Save vendor search' : mode === 'proposal' ? 'Record proposal' : 'Submit for approval'}</button></footer>
-    {showProposalDriveBrowser && <DriveBrowser title="Choose vendor proposal" onClose={() => setShowProposalDriveBrowser(false)} onSelect={(selected, accessToken) => { if (window.confirm(`Use “${selected.name}” as the vendor proposal?\n\nWhen you save, Woko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file stays in place.`)) { setProposalFile(selected); setProposalDriveToken(accessToken); } setShowProposalDriveBrowser(false); }} />}
+    <footer><button className="primary-button" disabled={submitting || (mode === 'proposal' && !hasProposalEvidence && !proposalFile && !localProposalFile) || (mode === 'submit' && !hasProposalEvidence)}>{submitting ? copy.saving : mode === 'search' ? copy.saveSearch : mode === 'proposal' ? copy.recordProposal : copy.submitApproval}</button></footer>
+    {showProposalDriveBrowser && <DriveBrowser locale={locale} title={copy.driveTitle} onClose={() => setShowProposalDriveBrowser(false)} onSelect={(selected, accessToken) => { if (window.confirm(copy.confirmProposal(selected.name))) { setProposalFile(selected); setProposalDriveToken(accessToken); } setShowProposalDriveBrowser(false); }} />}
   </form>;
 }
 

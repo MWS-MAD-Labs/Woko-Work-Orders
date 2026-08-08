@@ -1,5 +1,23 @@
 export type Locale = 'id' | 'en';
 
+export function storedLocale(defaultLocale: Locale = 'id'): Locale {
+  const value = localStorage.getItem('woko-locale');
+  return value === 'id' || value === 'en' ? value : defaultLocale;
+}
+
+const indonesianLocationTypeLabels: Record<string, string> = {
+  AREA: 'Area',
+  FLOOR: 'Lantai',
+  ROOM: 'Ruang',
+  ZONE: 'Zona',
+  WING: 'Sayap',
+};
+
+export function displayLocationType(typeLabel: string, locale: Locale): string {
+  if (locale === 'id') return indonesianLocationTypeLabels[typeLabel] ?? typeLabel.replaceAll('_', ' ').toLocaleLowerCase('id-ID');
+  return typeLabel.replaceAll('_', ' ');
+}
+
 const translations = {
   id: {
     productName: 'Woko', appSubtitle: 'Work Order', workOrders: 'Pekerjaan', allWork: 'Semua', myWork: 'Keterlibatan Saya', approvals: 'Persetujuan',

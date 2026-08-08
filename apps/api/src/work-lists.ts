@@ -24,9 +24,9 @@ async function occurrenceAccess(occurrenceId: string, userId: string, roles: rea
 }
 
 function accessError(access: 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND', requestId: string) {
-  if (access === 'NOT_FOUND') return { status: 404, body: { error: { code: 'NOT_FOUND', message: 'Work List not found.', requestId } } };
-  if (access === 'MISSED') return { status: 403, body: { error: { code: 'MISSED', message: 'This Work List passed its deadline and was marked as missed.', requestId } } };
-  return { status: 403, body: { error: { code: 'FORBIDDEN', message: 'You are no longer assigned to this Work List.', requestId } } };
+  if (access === 'NOT_FOUND') return { status: 404, body: { error: { code: 'NOT_FOUND', message: 'Routine Work not found.', requestId } } };
+  if (access === 'MISSED') return { status: 403, body: { error: { code: 'MISSED', message: 'This Routine Work passed its deadline and was marked as missed.', requestId } } };
+  return { status: 403, body: { error: { code: 'FORBIDDEN', message: 'You are no longer assigned to this Routine Work.', requestId } } };
 }
 async function ensureWorkers(workerIds: string[]) {
   const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_roles ur on ur.user_id = u.id where u.active and ur.role = 'WORKER' and u.id = any(${workerIds}::uuid[])`;
@@ -76,7 +76,7 @@ export async function workListRoutes(app: FastifyInstance) {
       await tx`insert into work_list_audit_events (template_id, user_id, event_type, data) values (${templateId}, ${request.currentUser.id}, 'TEMPLATE_UPDATED', ${tx.json({ title: input.title })})`;
       return true;
     });
-    if (!changed) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work List template not found.', requestId: request.id } });
+    if (!changed) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Routine Work template not found.', requestId: request.id } });
     return { data: { updated: true } };
   });
 
@@ -102,7 +102,7 @@ export async function workListRoutes(app: FastifyInstance) {
     const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.roles);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
     const occurrences = await sql`select o.*, coalesce((select json_agg(json_build_object('id', i.id, 'title', i.title, 'instructions', i.instructions, 'required', i.required, 'sort_order', i.sort_order, 'status', i.status, 'note', i.note, 'resolved_by', u.full_name, 'resolved_at', i.resolved_at::text, 'evidence', coalesce((select json_agg(json_build_object('id', e.id, 'drive_url', '/work-lists/evidence/' || e.id, 'file_name', e.file_name, 'uploaded_by', eu.full_name, 'created_at', e.created_at::text) order by e.created_at) from work_list_evidence e join users eu on eu.id=e.uploaded_by where e.occurrence_item_id=i.id), '[]'::json)) order by i.sort_order) from work_list_occurrence_items i left join users u on u.id=i.resolved_by where i.occurrence_id=o.id), '[]'::json) items, coalesce((select json_agg(json_build_object('id', e.id, 'drive_url', '/work-lists/evidence/' || e.id, 'file_name', e.file_name, 'uploaded_by', u.full_name, 'created_at', e.created_at::text)) from work_list_evidence e join users u on u.id=e.uploaded_by where e.occurrence_id=o.id and e.occurrence_item_id is null), '[]'::json) evidence from work_list_occurrences o where o.id=${occurrenceId}`;
-    if (!occurrences[0]) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work List not found.', requestId: request.id } });
+    if (!occurrences[0]) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Routine Work not found.', requestId: request.id } });
     return { data: occurrences[0] };
   });
 
@@ -110,7 +110,7 @@ export async function workListRoutes(app: FastifyInstance) {
     const evidenceId = id.parse((request.params as { evidenceId: string }).evidenceId);
     const rows = await sql<Array<{ occurrence_id: string; drive_file_id: string; file_name: string; mime_type: string }>>`select occurrence_id, drive_file_id, file_name, mime_type from work_list_evidence where id=${evidenceId}`;
     const evidence = rows[0];
-    if (!evidence) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work List evidence not found.', requestId: request.id } });
+    if (!evidence) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Routine Work evidence not found.', requestId: request.id } });
     const access = await occurrenceAccess(evidence.occurrence_id, request.currentUser.id, request.currentUser.roles);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
     const safeName = evidence.file_name.replaceAll(/[\r\n"]/g, '_');
@@ -146,7 +146,7 @@ export async function workListRoutes(app: FastifyInstance) {
       await tx`insert into work_list_audit_events (occurrence_id, user_id, event_type, data) values (${occurrenceId}, ${request.currentUser.id}, 'ITEM_RESOLVED', ${tx.json({ itemId, status: input.status, occurrenceCompleted: complete })})`;
       return { version: occurrence[0].version + 1, occurrenceCompleted: complete } as const;
     });
-    if ('error' in result) return reply.code(result.error === 'NOT_FOUND' || result.error === 'ITEM_NOT_FOUND' ? 404 : result.error === 'FORBIDDEN' ? 403 : result.error === 'ALREADY_RESOLVED' || result.error === 'MISSED' ? 409 : 422).send({ error: { code: result.error, message: result.error === 'FORBIDDEN' ? 'You are no longer assigned to this Work List.' : result.error === 'ALREADY_RESOLVED' ? 'Another worker already updated this checklist item.' : result.error === 'MISSED' ? 'This Work List passed its deadline and was marked as missed.' : 'The Work List item could not be updated.', requestId: request.id } });
+    if ('error' in result) return reply.code(result.error === 'NOT_FOUND' || result.error === 'ITEM_NOT_FOUND' ? 404 : result.error === 'FORBIDDEN' ? 403 : result.error === 'ALREADY_RESOLVED' || result.error === 'MISSED' ? 409 : 422).send({ error: { code: result.error, message: result.error === 'FORBIDDEN' ? 'You are no longer assigned to this Routine Work.' : result.error === 'ALREADY_RESOLVED' ? 'Another worker already updated this checklist item.' : result.error === 'MISSED' ? 'This Routine Work passed its deadline and was marked as missed.' : 'The Routine Work item could not be updated.', requestId: request.id } });
     return { data: result };
   });
 
@@ -204,7 +204,7 @@ export async function workListRoutes(app: FastifyInstance) {
       if ('error' in result) {
         const deleted = await deleteDriveFile(drive.id).then(() => true).catch(() => false);
         if (deleted) await sql`update work_list_evidence_uploads set status='CANCELLED' where id=${uploadId} and status='PENDING'`;
-        return reply.code(result.error === 'NOT_FOUND' || result.error === 'ITEM_NOT_FOUND' ? 404 : result.error === 'FORBIDDEN' ? 403 : 409).send({ error: { code: result.error, message: result.error === 'ITEM_UNAVAILABLE' ? 'Another worker already updated this checklist item.' : result.error === 'OCCURRENCE_CLOSED' ? 'This Work List is no longer open.' : 'The evidence could not be attached.', requestId: request.id } });
+        return reply.code(result.error === 'NOT_FOUND' || result.error === 'ITEM_NOT_FOUND' ? 404 : result.error === 'FORBIDDEN' ? 403 : 409).send({ error: { code: result.error, message: result.error === 'ITEM_UNAVAILABLE' ? 'Another worker already updated this checklist item.' : result.error === 'OCCURRENCE_CLOSED' ? 'This Routine Work is no longer open.' : 'The evidence could not be attached.', requestId: request.id } });
       }
       return reply.code(201).send(result);
     } catch (error) {

@@ -141,8 +141,8 @@ Vendor discovery, proposal submission, and proposal decisions use structured act
 - Report summary counts and breakdowns by assignee, category, location, work type, and academic year.
 - Filter reports by date range, location, category, assignee, and work type.
 - Allow administrators to manage users, locations, and organization work settings.
-- Allow Administrators and Facilities Managers to manage location-based recurring Work List templates; assigned worker teams complete shared daily, Saturday weekly, and last-Saturday monthly checklists with a description and at least one photo.
-- Send daily overdue Work List reminders to assigned Workers and a Monday 08:00 all-activity digest to Facilities Managers.
+- Allow Administrators and Facilities Managers to manage location-based Routine Work templates; assigned worker teams complete shared daily, Saturday weekly, and last-Saturday monthly checklists with a description and at least one photo.
+- Send daily overdue Routine Work reminders to assigned Workers and a Monday 08:00 all-activity digest to Facilities Managers.
 - Support bilingual user preference for Bahasa Indonesia and English.
 
 ## 8. Non-functional requirements

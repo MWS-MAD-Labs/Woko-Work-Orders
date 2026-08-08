@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Building2, ChevronDown, ChevronRight, MapPin, Plus, Save, Trash2, X } from 'lucide-react';
 import { api } from './api';
+import { displayLocationType, type Locale } from './i18n';
 import type { AdminLocationData } from './types';
 
 const emptyData: AdminLocationData = { campuses: [], buildings: [], options: [] };
@@ -8,6 +9,7 @@ const createId = () => crypto.randomUUID();
 const snapshot = (value: AdminLocationData) => JSON.stringify(value);
 
 type AdminLocationOption = AdminLocationData['options'][number];
+
 
 function orderLocationTree(options: AdminLocationOption[]): AdminLocationOption[] {
   const byParent = new Map<string | null, AdminLocationOption[]>();
@@ -32,7 +34,8 @@ function orderLocationTree(options: AdminLocationOption[]): AdminLocationOption[
   return ordered;
 }
 
-export function AdminLocations({ onClose, onChanged }: { onClose: () => void; onChanged: () => Promise<void> | void }) {
+export function AdminLocations({ locale, onClose, onChanged }: { locale: Locale; onClose: () => void; onChanged: () => Promise<void> | void }) {
+  const id = locale === 'id';
   const [data, setData] = useState<AdminLocationData>(emptyData);
   const [savedSnapshot, setSavedSnapshot] = useState(snapshot(emptyData));
   const [removedBuildingIds, setRemovedBuildingIds] = useState<string[]>([]);
@@ -58,7 +61,7 @@ export function AdminLocations({ onClose, onChanged }: { onClose: () => void; on
       setBuildingDraft((current) => ({ ...current, campusId: loadedData.campuses[0]?.id || '' }));
       setOptionDraft((current) => ({ ...current, buildingId: loadedData.buildings[0]?.id || '', parentId: '' }));
       setLoaded(true);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Locations could not be loaded.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : id ? 'Lokasi tidak dapat dimuat.' : 'Locations could not be loaded.'); }
   };
 
   useEffect(() => { void load(); }, []);
@@ -70,7 +73,7 @@ export function AdminLocations({ onClose, onChanged }: { onClose: () => void; on
   }, [dirty]);
 
   const requestClose = () => {
-    if (dirty && !window.confirm('You have unsaved location changes. Discard them and close?')) return;
+    if (dirty && !window.confirm(id ? 'Anda memiliki perubahan lokasi yang belum disimpan. Buang perubahan dan tutup?' : 'You have unsaved location changes. Discard them and close?')) return;
     onClose();
   };
 
@@ -129,7 +132,7 @@ export function AdminLocations({ onClose, onChanged }: { onClose: () => void; on
       }) });
       await load();
       await onChanged();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Location configuration could not be saved.'); }
+    } catch (caught) { setError(caught instanceof Error ? caught.message : id ? 'Konfigurasi lokasi tidak dapat disimpan.' : 'Location configuration could not be saved.'); }
     finally { setSaving(false); }
   };
 
@@ -186,52 +189,52 @@ export function AdminLocations({ onClose, onChanged }: { onClose: () => void; on
   });
 
   return <div className="sheet-backdrop" onMouseDown={requestClose}><section className="sheet admin-sheet location-admin-sheet" onMouseDown={(event) => event.stopPropagation()}>
-    <header className="sheet-header"><div><span>Organization Settings</span><h2>Locations</h2></div><button className="icon-button" onClick={requestClose} aria-label="Back to organization settings"><X /></button></header>
+    <header className="sheet-header"><div><span>{id ? 'Pengaturan Organisasi' : 'Organization Settings'}</span><h2>{id ? 'Lokasi' : 'Locations'}</h2></div><button className="icon-button" onClick={requestClose} aria-label={id ? 'Kembali ke pengaturan organisasi' : 'Back to organization settings'}><X /></button></header>
     <div className="sheet-content location-admin-content">
-      <p className="muted">Make all additions, edits, and removals in this draft, then save them together.</p>
-      {dirty && <p className="unsaved-banner">You have unsaved changes.</p>}
+      <p className="muted">{id ? 'Lakukan semua penambahan, perubahan, dan penghapusan dalam draf ini, lalu simpan semuanya sekaligus.' : 'Make all additions, edits, and removals in this draft, then save them together.'}</p>
+      {dirty && <p className="unsaved-banner">{id ? 'Anda memiliki perubahan yang belum disimpan.' : 'You have unsaved changes.'}</p>}
       {error && <p className="form-error" role="alert">{error}</p>}
 
       <section className="location-admin-section">
-        <header><MapPin /><div><h3>Campuses</h3><p>Top-level sites available when creating work orders.</p></div></header>
-        <form className="location-create-row" onSubmit={addCampus}><input aria-label="Campus code" placeholder="Code" value={campusDraft.code} onChange={(event) => setCampusDraft((current) => ({ ...current, code: event.target.value }))} required /><input aria-label="Campus name" placeholder="Campus name" value={campusDraft.name} onChange={(event) => setCampusDraft((current) => ({ ...current, name: event.target.value }))} required /><button className="secondary-button"><Plus /> Add to draft</button></form>
-        <div className="location-config-list">{data.campuses.map((campus) => <div className="location-config-row" key={campus.id}><input value={campus.code} onChange={(event) => setData((current) => ({ ...current, campuses: current.campuses.map((item) => item.id === campus.id ? { ...item, code: event.target.value } : item) }))} /><input value={campus.name} onChange={(event) => setData((current) => ({ ...current, campuses: current.campuses.map((item) => item.id === campus.id ? { ...item, name: event.target.value } : item) }))} /><label><input type="checkbox" checked={campus.active} onChange={(event) => setData((current) => ({ ...current, campuses: current.campuses.map((item) => item.id === campus.id ? { ...item, active: event.target.checked } : item) }))} /> Active</label></div>)}</div>
+        <header><MapPin /><div><h3>{id ? 'Kampus' : 'Campuses'}</h3><p>{id ? 'Lokasi tingkat teratas yang tersedia saat membuat pekerjaan.' : 'Top-level sites available when creating work orders.'}</p></div></header>
+        <form className="location-create-row" onSubmit={addCampus}><input aria-label={id ? 'Kode kampus' : 'Campus code'} placeholder={id ? 'Kode' : 'Code'} value={campusDraft.code} onChange={(event) => setCampusDraft((current) => ({ ...current, code: event.target.value }))} required /><input aria-label={id ? 'Nama kampus' : 'Campus name'} placeholder={id ? 'Nama kampus' : 'Campus name'} value={campusDraft.name} onChange={(event) => setCampusDraft((current) => ({ ...current, name: event.target.value }))} required /><button className="secondary-button"><Plus /> {id ? 'Tambahkan ke draf' : 'Add to draft'}</button></form>
+        <div className="location-config-list">{data.campuses.map((campus) => <div className="location-config-row" key={campus.id}><input value={campus.code} onChange={(event) => setData((current) => ({ ...current, campuses: current.campuses.map((item) => item.id === campus.id ? { ...item, code: event.target.value } : item) }))} /><input value={campus.name} onChange={(event) => setData((current) => ({ ...current, campuses: current.campuses.map((item) => item.id === campus.id ? { ...item, name: event.target.value } : item) }))} /><label><input type="checkbox" checked={campus.active} onChange={(event) => setData((current) => ({ ...current, campuses: current.campuses.map((item) => item.id === campus.id ? { ...item, active: event.target.checked } : item) }))} /> {id ? 'Aktif' : 'Active'}</label></div>)}</div>
       </section>
 
       <section className="location-admin-section">
-        <header><Building2 /><div><h3>Buildings</h3><p>Remove stages the building and all its nested locations for deletion on save.</p></div></header>
-        <form className="location-create-row building-row" onSubmit={addBuilding}><select value={buildingDraft.campusId} onChange={(event) => setBuildingDraft((current) => ({ ...current, campusId: event.target.value }))} required>{data.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select><input placeholder="Code" value={buildingDraft.code} onChange={(event) => setBuildingDraft((current) => ({ ...current, code: event.target.value }))} required /><input placeholder="Building name" value={buildingDraft.name} onChange={(event) => setBuildingDraft((current) => ({ ...current, name: event.target.value }))} required /><button className="secondary-button"><Plus /> Add to draft</button></form>
-        <div className="location-config-list">{data.buildings.map((building) => <div className="location-config-row building-row" key={building.id}><select value={building.campus_id} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, campus_id: event.target.value } : item) }))}>{data.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select><input value={building.code} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, code: event.target.value } : item) }))} /><input value={building.name} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, name: event.target.value } : item) }))} /><label><input type="checkbox" checked={building.active} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, active: event.target.checked } : item) }))} /> Active</label><button className="icon-button remove-location-button" type="button" onClick={() => removeBuilding(building.id)} aria-label={`Remove ${building.name}`}><Trash2 /></button></div>)}</div>
+        <header><Building2 /><div><h3>{id ? 'Gedung' : 'Buildings'}</h3><p>{id ? 'Menghapus akan menandai gedung dan semua lokasi di dalamnya untuk dihapus saat disimpan.' : 'Remove stages the building and all its nested locations for deletion on save.'}</p></div></header>
+        <form className="location-create-row building-row" onSubmit={addBuilding}><select aria-label={id ? 'Kampus gedung' : 'Building campus'} value={buildingDraft.campusId} onChange={(event) => setBuildingDraft((current) => ({ ...current, campusId: event.target.value }))} required>{data.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select><input placeholder={id ? 'Kode' : 'Code'} value={buildingDraft.code} onChange={(event) => setBuildingDraft((current) => ({ ...current, code: event.target.value }))} required /><input placeholder={id ? 'Nama gedung' : 'Building name'} value={buildingDraft.name} onChange={(event) => setBuildingDraft((current) => ({ ...current, name: event.target.value }))} required /><button className="secondary-button"><Plus /> {id ? 'Tambahkan ke draf' : 'Add to draft'}</button></form>
+        <div className="location-config-list">{data.buildings.map((building) => <div className="location-config-row building-row" key={building.id}><select value={building.campus_id} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, campus_id: event.target.value } : item) }))}>{data.campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.name}</option>)}</select><input value={building.code} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, code: event.target.value } : item) }))} /><input value={building.name} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, name: event.target.value } : item) }))} /><label><input type="checkbox" checked={building.active} onChange={(event) => setData((current) => ({ ...current, buildings: current.buildings.map((item) => item.id === building.id ? { ...item, active: event.target.checked } : item) }))} /> {id ? 'Aktif' : 'Active'}</label><button className="icon-button remove-location-button" type="button" onClick={() => removeBuilding(building.id)} aria-label={id ? `Hapus ${building.name}` : `Remove ${building.name}`}><Trash2 /></button></div>)}</div>
       </section>
 
       <section className="location-admin-section">
-        <header><MapPin /><div><h3>Areas, floors, rooms, and other options</h3><p>Removing a parent also removes all nested children when saved.</p></div></header>
+        <header><MapPin /><div><h3>{id ? 'Area, lantai, ruangan, dan opsi lainnya' : 'Areas, floors, rooms, and other options'}</h3><p>{id ? 'Menghapus lokasi induk juga akan menghapus semua lokasi di bawahnya saat disimpan.' : 'Removing a parent also removes all nested children when saved.'}</p></div></header>
         <form className="location-option-create" onSubmit={addOption}>
-          <select value={optionDraft.buildingId} onChange={(event) => setOptionDraft((current) => ({ ...current, buildingId: event.target.value, parentId: '' }))} required>{data.buildings.map((building) => <option key={building.id} value={building.id}>{data.campuses.find((campus) => campus.id === building.campus_id)?.name} · {building.name}</option>)}</select>
+          <select aria-label={id ? 'Gedung lokasi' : 'Location building'} value={optionDraft.buildingId} onChange={(event) => setOptionDraft((current) => ({ ...current, buildingId: event.target.value, parentId: '' }))} required>{data.buildings.map((building) => <option key={building.id} value={building.id}>{data.campuses.find((campus) => campus.id === building.campus_id)?.name} · {building.name}</option>)}</select>
           <div className="parent-cascade">
-            <label><span>Parent level</span><select value={parentCascadeLevels[0]?.selectedId ?? ''} onChange={(event) => selectParentLevel(0, event.target.value)}><option value="">No parent (top level)</option>{parentCascadeLevels[0]?.options.map((option) => <option key={option.id} value={option.id}>{option.type_label.replaceAll('_', ' ')}: {option.name}</option>)}</select></label>
-            {parentCascadeLevels.slice(1).map((level, index) => <label key={level.parentId ?? `level-${index}`}><span>Sub-level {index + 1}</span><select value={level.selectedId} onChange={(event) => selectParentLevel(index + 1, event.target.value)}><option value="">Use previous level as parent</option>{level.options.map((option) => <option key={option.id} value={option.id}>{option.type_label.replaceAll('_', ' ')}: {option.name}</option>)}</select></label>)}
+            <label><span>{id ? 'Tingkat induk' : 'Parent level'}</span><select value={parentCascadeLevels[0]?.selectedId ?? ''} onChange={(event) => selectParentLevel(0, event.target.value)}><option value="">{id ? 'Tanpa induk (tingkat teratas)' : 'No parent (top level)'}</option>{parentCascadeLevels[0]?.options.map((option) => <option key={option.id} value={option.id}>{displayLocationType(option.type_label, locale)}: {option.name}</option>)}</select></label>
+            {parentCascadeLevels.slice(1).map((level, index) => <label key={level.parentId ?? `level-${index}`}><span>{id ? `Subtingkat ${index + 1}` : `Sub-level ${index + 1}`}</span><select value={level.selectedId} onChange={(event) => selectParentLevel(index + 1, event.target.value)}><option value="">{id ? 'Gunakan tingkat sebelumnya sebagai induk' : 'Use previous level as parent'}</option>{level.options.map((option) => <option key={option.id} value={option.id}>{displayLocationType(option.type_label, locale)}: {option.name}</option>)}</select></label>)}
           </div>
-          <input placeholder="Type, e.g. AREA" value={optionDraft.typeLabel} onChange={(event) => setOptionDraft((current) => ({ ...current, typeLabel: event.target.value }))} required />
-          <input placeholder="Name" value={optionDraft.name} onChange={(event) => setOptionDraft((current) => ({ ...current, name: event.target.value }))} required />
-          <input placeholder="Code" value={optionDraft.code} onChange={(event) => setOptionDraft((current) => ({ ...current, code: event.target.value }))} />
-          <input type="number" value={optionDraft.sortOrder} onChange={(event) => setOptionDraft((current) => ({ ...current, sortOrder: event.target.value }))} />
-          <button className="secondary-button" disabled={!data.buildings.length}><Plus /> Add to draft</button>
+          <input placeholder={id ? 'Jenis, mis. AREA' : 'Type, e.g. AREA'} value={optionDraft.typeLabel} onChange={(event) => setOptionDraft((current) => ({ ...current, typeLabel: event.target.value }))} required />
+          <input placeholder={id ? 'Nama' : 'Name'} value={optionDraft.name} onChange={(event) => setOptionDraft((current) => ({ ...current, name: event.target.value }))} required />
+          <input placeholder={id ? 'Kode' : 'Code'} value={optionDraft.code} onChange={(event) => setOptionDraft((current) => ({ ...current, code: event.target.value }))} />
+          <input aria-label={id ? 'Urutan' : 'Sort order'} type="number" value={optionDraft.sortOrder} onChange={(event) => setOptionDraft((current) => ({ ...current, sortOrder: event.target.value }))} />
+          <button className="secondary-button" disabled={!data.buildings.length}><Plus /> {id ? 'Tambahkan ke draf' : 'Add to draft'}</button>
         </form>
         <div className="location-config-list">{data.buildings.map((building) => <div className="location-building-group" key={building.id}>
           <h4>{data.campuses.find((campus) => campus.id === building.campus_id)?.name} · {building.name}</h4>
           {(orderedOptionsByBuilding.get(building.id) ?? []).filter(isOptionVisible).map((option) => <div className="location-config-row option-row" style={{ marginLeft: `${Math.min(optionDepths.get(option.id) ?? 0, 5) * 22}px` }} key={option.id}>
-            <button type="button" className="option-tree-toggle" disabled={!optionHasChildren(option.id)} onClick={() => toggleOption(option.id)} aria-label={`${collapsedOptionIds.has(option.id) ? 'Expand' : 'Collapse'} ${option.name}`}>{optionHasChildren(option.id) ? collapsedOptionIds.has(option.id) ? <ChevronRight /> : <ChevronDown /> : <span />}</button>
+            <button type="button" className="option-tree-toggle" disabled={!optionHasChildren(option.id)} onClick={() => toggleOption(option.id)} aria-label={`${collapsedOptionIds.has(option.id) ? id ? 'Buka' : 'Expand' : id ? 'Tutup' : 'Collapse'} ${option.name}`}>{optionHasChildren(option.id) ? collapsedOptionIds.has(option.id) ? <ChevronRight /> : <ChevronDown /> : <span />}</button>
             <input value={option.type_label} onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, type_label: event.target.value } : item) }))} />
             <input value={option.name} onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, name: event.target.value } : item) }))} />
-            <input value={option.code ?? ''} placeholder="Code" onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, code: event.target.value || null } : item) }))} />
+            <input value={option.code ?? ''} placeholder={id ? 'Kode' : 'Code'} onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, code: event.target.value || null } : item) }))} />
             <input type="number" value={option.sort_order} onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, sort_order: Number(event.target.value) } : item) }))} />
-            <label><input type="checkbox" checked={option.active} onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, active: event.target.checked } : item) }))} /> Active</label>
-            <button className="icon-button remove-location-button" type="button" onClick={() => removeOption(option.id)} aria-label={`Remove ${option.name}`}><Trash2 /></button>
+            <label><input type="checkbox" checked={option.active} onChange={(event) => setData((current) => ({ ...current, options: current.options.map((item) => item.id === option.id ? { ...item, active: event.target.checked } : item) }))} /> {id ? 'Aktif' : 'Active'}</label>
+            <button className="icon-button remove-location-button" type="button" onClick={() => removeOption(option.id)} aria-label={id ? `Hapus ${option.name}` : `Remove ${option.name}`}><Trash2 /></button>
           </div>)}
         </div>)}</div>
       </section>
     </div>
-    <footer className="sheet-actions location-save-actions"><span>{dirty ? 'Unsaved location changes' : 'All changes saved'}</span><div><button className="secondary-button" onClick={requestClose}>Close</button><button className="primary-button" onClick={() => void saveAll()} disabled={!dirty || saving}><Save /> {saving ? 'Saving...' : 'Save all changes'}</button></div></footer>
+    <footer className="sheet-actions location-save-actions"><span>{dirty ? id ? 'Perubahan lokasi belum disimpan' : 'Unsaved location changes' : id ? 'Semua perubahan telah disimpan' : 'All changes saved'}</span><div><button className="secondary-button" onClick={requestClose}>{id ? 'Tutup' : 'Close'}</button><button className="primary-button" onClick={() => void saveAll()} disabled={!dirty || saving}><Save /> {saving ? id ? 'Menyimpan...' : 'Saving...' : id ? 'Simpan semua perubahan' : 'Save all changes'}</button></div></footer>
   </section></div>;
 }
