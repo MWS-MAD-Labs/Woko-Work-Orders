@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, Check, ExternalLink, FileUp, FolderSearch, Rotat
 import { blockerCategories, evidenceRules, evidenceTypes, priorities, proposalDecisions, type EvidenceType, type ProposalDecision, type TaskCondition, type WorkflowStage } from '@woko/domain';
 import { api, createIdempotencyKey, uploadWithProgress } from './api';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
-import { translator, type Locale } from './i18n';
+import { storedLocale, translator, type Locale } from './i18n';
 import { getProjectProgress } from './work-order-progress';
 import { DriveBrowser, type DriveBrowserItem } from './DriveBrowser';
 import { formatIdrCurrency, formatIdrInput, parseIdrInput } from './currency';
@@ -68,10 +68,7 @@ const procurementDecisionLabels: Record<Locale, Record<string, string>> = {
   en: { APPROVED: 'Approve', REJECTED: 'Reject', REVISION_REQUIRED: 'Request revision' },
 };
 
-function persistedLocale(): Locale {
-  if (typeof window === 'undefined') return 'en';
-  return window.localStorage.getItem('woko-locale') === 'id' ? 'id' : 'en';
-}
+
 
 function localizedLabel(labels: Record<Locale, Record<string, string>>, value: string, locale: Locale) {
   return labels[locale][value] ?? value.replaceAll('_', ' ').toLowerCase().replace(/^./, (letter) => letter.toUpperCase());
@@ -634,7 +631,7 @@ export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose,
 }
 
 export function VendorActionForm({ order, locale: requestedLocale, onClose, onChanged }: Omit<WorkflowFormProps, 'currentUser'>) {
-  const locale = requestedLocale ?? persistedLocale();
+  const locale = requestedLocale ?? storedLocale();
   const copy = locale === 'id'
     ? { preparing: 'Persiapan · 30%', updatePreparation: 'Perbarui persiapan vendor', recordProposal: 'Catat proposal vendor', sendApproval: 'Kirim proposal untuk persetujuan', intro: 'Buat pembaruan tetap singkat. Tambahkan detail komersial hanya setelah proposal tersedia.', stillPreparing: 'Masih dalam persiapan', proposalReceived: 'Proposal diterima', updateProposal: 'Perbarui proposal', readyApproval: 'Siap diajukan', shortUpdate: 'Pembaruan singkat', searchHint: 'Contoh: Dua vendor telah dihubungi; menunggu konfirmasi kunjungan lokasi.', vendorIfKnown: 'Nama vendor, jika sudah diketahui', vendorName: 'Nama vendor', quotedCost: 'Nilai penawaran', costHint: 'Masukkan total nilai proposal dalam rupiah.', proposalDocument: 'Dokumen proposal vendor', uploadDevice: 'Unggah dari perangkat', chooseProposalFile: 'Pilih dokumen proposal vendor untuk diunggah', shortcutHint: 'Pintasan pribadi akan dibuat di folder 03 Proposals saat disimpan', chooseDrive: 'Pilih dari Google Drive', driveHint: 'Bagikan dengan layanan Drive Woko dan buat pintasan', existingProposal: 'Dokumen proposal yang sudah ada telah dilampirkan.', optionalDetails: 'Tambahkan detail proposal opsional', validityDate: 'Tanggal berlaku proposal', expectedDuration: 'Perkiraan durasi pekerjaan', durationPlaceholder: 'Contoh: 5 hari kerja', proposalNotes: 'Catatan proposal', submissionNote: 'Catatan pengajuan', proposalRequired: 'Dokumen proposal diperlukan sebelum diajukan.', saving: 'Menyimpan...', saveSearch: 'Simpan pencarian vendor', submitApproval: 'Ajukan untuk persetujuan', failed: 'Tindakan vendor gagal.', driveTitle: 'Pilih proposal vendor', confirmProposal: (name: string) => `Gunakan “${name}” sebagai proposal vendor?\n\nSaat disimpan, Woko akan memberikan akses edit kepada semua orang di kartu pekerjaan ini dan membuat pintasan di folder proyek pribadi. Berkas asli tetap di tempatnya.` }
     : { preparing: 'Preparing · 30%', updatePreparation: 'Update vendor preparation', recordProposal: 'Record vendor proposal', sendApproval: 'Send proposal for approval', intro: 'Keep the update brief. Add commercial details only when a proposal is available.', stillPreparing: 'Still preparing', proposalReceived: 'Proposal received', updateProposal: 'Update proposal', readyApproval: 'Ready for approval', shortUpdate: 'Short update', searchHint: 'Example: Contacted two vendors; waiting for site visit confirmation.', vendorIfKnown: 'Vendor name, if known', vendorName: 'Vendor name', quotedCost: 'Quoted cost', costHint: 'Enter the total proposal value in IDR.', proposalDocument: 'Vendor proposal document', uploadDevice: 'Upload from device', chooseProposalFile: 'Choose a vendor proposal document to upload', shortcutHint: 'Will create a private shortcut in 03 Proposals when saved', chooseDrive: 'Choose from Google Drive', driveHint: 'Share with the Woko Drive worker and create a shortcut', existingProposal: 'An existing proposal document is already attached.', optionalDetails: 'Add optional proposal details', validityDate: 'Proposal validity date', expectedDuration: 'Expected work duration', durationPlaceholder: 'Example: 5 working days', proposalNotes: 'Proposal notes', submissionNote: 'Submission note', proposalRequired: 'A proposal document is required before submission.', saving: 'Saving...', saveSearch: 'Save vendor search', submitApproval: 'Submit for approval', failed: 'Vendor action failed.', driveTitle: 'Choose vendor proposal', confirmProposal: (name: string) => `Use “${name}” as the vendor proposal?\n\nWhen you save, Woko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file stays in place.` };

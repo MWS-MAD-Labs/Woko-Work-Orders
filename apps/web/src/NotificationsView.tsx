@@ -173,7 +173,7 @@ function extractWorkListMessage(message: string) {
   }
 
   let instruction: string | null = null;
-  const instructionMatch = summary.match(/\s+(Complete (?:it|them) before the deadline\.)$/i);
+  const instructionMatch = summary.match(/\s+((?:Complete (?:it|them) before the deadline|Selesaikan sebelum tenggat)\.)$/i);
   if (instructionMatch?.index !== undefined && instructionMatch[1]) {
     instruction = instructionMatch[1];
     summary = summary.slice(0, instructionMatch.index).trim();

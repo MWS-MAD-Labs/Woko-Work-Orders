@@ -10,7 +10,6 @@ const snapshot = (value: AdminLocationData) => JSON.stringify(value);
 
 type AdminLocationOption = AdminLocationData['options'][number];
 
-
 function orderLocationTree(options: AdminLocationOption[]): AdminLocationOption[] {
   const byParent = new Map<string | null, AdminLocationOption[]>();
   for (const option of options) {
