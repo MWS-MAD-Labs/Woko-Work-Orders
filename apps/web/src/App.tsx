@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Search, Settings, ShieldAlert, Trash2, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Printer, Search, Settings, ShieldAlert, Trash2, UserCheck, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
@@ -112,6 +112,56 @@ function ProgressDiscussion({ orderId, update, locale, canComment, onChanged }: 
   return <div className="progress-discussion"><button type="button" className="comment-toggle" onClick={() => setOpen((value) => !value)}><MessageCircle /> {t('comment')} {comments.length > 0 && <span>{comments.length}</span>}</button>{open && <div className="comment-thread">{comments.length ? comments.map((comment) => <article key={comment.id}><strong>{comment.author}</strong><p>{comment.body}</p><small>{formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: locale === 'id' ? id : enUS })}</small></article>) : <p className="muted">{t('noComments')}</p>}<form onSubmit={submit}><textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder={t('writeComment')} maxLength={2000} required /><button className="secondary-button" disabled={submitting || !body.trim()}>{t('send')}</button></form>{error && <p className="form-error">{error}</p>}</div>}</div>;
 }
 
+function ProjectHistoryPrintView({ order, locale, references, onClose }: { order: Order; locale: Locale; references: ReferenceData; onClose: () => void }) {
+  const t = translator(locale);
+  const dateLocale = locale === 'id' ? id : enUS;
+  const progress = getProjectProgress(order, locale);
+  const reviewer = order.reviewer_id && order.reviewer_name ? [{ id: order.reviewer_id, full_name: order.reviewer_name, email: '', profile_photo_url: order.reviewer_photo_url }] : [];
+  const roles = [
+    { label: t('pic'), people: order.assignees },
+    ...(order.work_type === 'INTERNAL' ? [{ label: t('workers'), people: order.workers }] : []),
+    { label: t('reviewer'), people: reviewer, emptyLabel: t('defaultManager') },
+    { label: t('overseers'), people: order.overseers },
+  ];
+  const formatDate = (value: string | null | undefined, pattern = 'd MMMM yyyy, HH:mm') => {
+    if (!value) return '—';
+    const parsed = new Date(value.includes('T') ? value : `${value}T00:00:00`);
+    return Number.isNaN(parsed.getTime()) ? '—' : format(parsed, pattern, { locale: dateLocale });
+  };
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onCloseRef.current(); };
+    document.body.classList.add('print-history-mode');
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.classList.remove('print-history-mode');
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
+  return <div className="print-history-backdrop" role="presentation" onMouseDown={onClose}>
+    <section className="print-history-preview" role="dialog" aria-modal="true" aria-labelledby="print-history-title" onMouseDown={(event) => event.stopPropagation()}>
+      <header className="print-history-toolbar"><div><span>{t('printPreview')}</span><strong>{order.work_order_number}</strong></div><div><button className="secondary-button" onClick={onClose}>{t('close')}</button><button className="primary-button" onClick={() => window.print()}><Printer /> {t('printHistory')}</button></div></header>
+      <article className="print-history-document">
+        <header className="print-document-header"><BrandLogo /><div><span>{t('projectHistory')}</span><h1 id="print-history-title">{order.title}</h1><p>{order.work_order_number}</p></div></header>
+        <div className="print-status-row"><StatusPill tone="navy">{progress.label}</StatusPill><StatusPill tone={order.priority === 'CRITICAL' ? 'red' : 'gold'}>{order.priority}</StatusPill><span>{t('generatedOn')} {formatDate(new Date().toISOString())}</span></div>
+        <section className="print-description"><h2>{t('description')}</h2><p>{order.description}</p></section>
+        <section className="print-project-details"><h2>{t('projectDetails')}</h2><dl><div><dt>{t('location')}</dt><dd>{order.campus} · {order.building}, {order.room_or_area}</dd></div><div><dt>{t('due')}</dt><dd>{formatDate(order.due_date, 'd MMMM yyyy')}</dd></div><div><dt>{t('category')}</dt><dd>{order.category}</dd></div><div><dt>{t('workType')}</dt><dd>{order.work_type}</dd></div><div><dt>{t('projectProgress')}</dt><dd>{progress.sublabel ? `${progress.label} · ${progress.sublabel}` : progress.label}</dd></div><div><dt>{t('created')}</dt><dd>{formatDate(order.created_at)}</dd></div></dl></section>
+        <section className="print-people"><h2>{t('peopleInvolved')}</h2><div>{roles.map((role) => <section key={role.label}><h3>{role.label}</h3>{role.people.length ? <ul>{role.people.map((person) => <li key={person.id}><Avatar name={person.full_name} photoUrl={person.profile_photo_url} /><span><strong>{person.full_name}</strong>{person.email && <small>{person.email}</small>}</span></li>)}</ul> : <p>{role.emptyLabel ?? '—'}</p>}</section>)}</div></section>
+        <section className="print-timeline"><h2>{t('historyEntries')}</h2>{order.updates?.length ? order.updates.map((update) => {
+          const participantChanges = update.update_type === 'PARTICIPANTS_CHANGED' ? formatParticipantChanges(update.structured_data, references.users, locale) : [];
+          const structuredAttachmentIds = Array.isArray(update.structured_data.attachmentIds) ? update.structured_data.attachmentIds.filter((value): value is string => typeof value === 'string') : [];
+          const legacyAttachmentId = typeof update.structured_data.attachmentId === 'string' ? update.structured_data.attachmentId : null;
+          const attachmentIds = [...new Set([...structuredAttachmentIds, ...(legacyAttachmentId ? [legacyAttachmentId] : [])])];
+          const updateAttachments = (order.attachments ?? []).filter((attachment) => attachmentIds.includes(attachment.id));
+          return <article className="print-timeline-item" key={update.id}><span className="print-timeline-marker" /><div><header><strong>{getUpdateLabel(update.update_type, locale)}</strong><time>{formatDate(update.created_at)}</time></header>{update.update_type !== 'FILE_EVIDENCE_ADDED' && update.note && <p>{update.note}</p>}{participantChanges.length > 0 && <ul className="print-change-list">{participantChanges.map((change) => <li key={change}>{change}</li>)}</ul>}{updateAttachments.length > 0 && <div className="print-attachments">{updateAttachments.map((attachment) => <p key={attachment.id}><FileText /><span><strong>{attachment.original_file_name ?? attachment.file_name}</strong><small>{attachment.evidence_type} · {attachment.uploaded_by}</small></span></p>)}</div>}<small className="print-update-author">{update.author}</small>{update.comments?.length > 0 && <div className="print-comments"><h4>{t('discussion')}</h4>{update.comments.map((comment) => <blockquote key={comment.id}><p>{comment.body}</p><footer>{comment.author} · {formatDate(comment.created_at)}</footer></blockquote>)}</div>}</div></article>;
+        }) : <p className="muted">{t('noUpdates')}</p>}</section>
+        <footer className="print-document-footer"><BrandLogo variant="icon" /><span>{order.work_order_number} · {t('projectHistory')}</span></footer>
+      </article>
+    </section>
+  </div>;
+}
+
 function DetailDrawer({ order, locale, currentUser, references, onClose, onChanged, onDelete }: { order: Order; locale: Locale; currentUser: CurrentUser; references: ReferenceData; onClose: () => void; onChanged: () => Promise<void>; onDelete: (order: Order) => Promise<void> }) {
   const t = translator(locale);
   const dateLocale = locale === 'id' ? id : enUS;
@@ -119,6 +169,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  const [showPrintHistory, setShowPrintHistory] = useState(false);
   const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
   const isPic = order.assignees.some((person) => person.id === currentUser.id);
   const isWorker = order.workers.some((person) => person.id === currentUser.id);
@@ -172,7 +223,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
         </dl>
         <InternalProcurementPanel order={order as WorkOrder} currentUser={currentUser} onChanged={onChanged} />
         <EvidencePanel order={order as WorkOrder} currentUser={currentUser} onChanged={onChanged} />
-        <section className="timeline-section"><h3>{t('timeline')}</h3><p className="timeline-help">{t('commentAccess')}</p>{order.updates?.length ? order.updates.map((update) => {
+        <section className="timeline-section"><header className="timeline-heading"><div><h3>{t('timeline')}</h3><p className="timeline-help">{t('commentAccess')}</p></div><button className="secondary-button" onClick={() => setShowPrintHistory(true)}><Printer /> {t('printHistory')}</button></header>{order.updates?.length ? order.updates.map((update) => {
           const participantChanges = update.update_type === 'PARTICIPANTS_CHANGED' ? formatParticipantChanges(update.structured_data, references.users, locale) : [];
           const structuredAttachmentIds = Array.isArray(update.structured_data.attachmentIds) ? update.structured_data.attachmentIds.filter((value): value is string => typeof value === 'string') : [];
           const legacyAttachmentId = typeof update.structured_data.attachmentId === 'string' ? update.structured_data.attachmentId : null;
@@ -190,6 +241,7 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
       {action === 'due-date' && <DueDateActionForm order={order as WorkOrder} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'participants' && <ParticipantsActionForm order={order} references={references} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {confirmingDelete && <section className="action-panel delete-confirmation" role="alertdialog" aria-modal="true" aria-labelledby="delete-work-order-title"><header><div><span>{locale === 'id' ? 'Tindakan administrator' : 'Administrator action'}</span><h3 id="delete-work-order-title">{locale === 'id' ? 'Hapus pekerjaan ini?' : 'Delete this work order?'}</h3></div><button className="icon-button" onClick={() => setConfirmingDelete(false)} disabled={deleting} aria-label={t('close')}><X /></button></header><p>{locale === 'id' ? `${order.work_order_number} akan disembunyikan dari daftar, laporan, persetujuan, dan notifikasi. Riwayatnya tetap disimpan untuk audit.` : `${order.work_order_number} will be hidden from lists, reports, approvals, and notifications. Its history will remain stored for audit.`}</p>{deleteError && <p className="form-error" role="alert">{deleteError}</p>}<footer><button className="secondary-button" onClick={() => setConfirmingDelete(false)} disabled={deleting}>{locale === 'id' ? 'Batal' : 'Cancel'}</button><button className="primary-button destructive-button" onClick={() => void deleteWorkOrder()} disabled={deleting}><Trash2 /> {deleting ? (locale === 'id' ? 'Menghapus...' : 'Deleting...') : (locale === 'id' ? 'Ya, hapus pekerjaan' : 'Yes, delete work order')}</button></footer></section>}
+      {showPrintHistory && <ProjectHistoryPrintView order={order} locale={locale} references={references} onClose={() => setShowPrintHistory(false)} />}
     </section>
   </div>;
 }
