@@ -8,8 +8,12 @@ describe('evidence validation', () => {
     expect(() => validateEvidenceMetadata({ fileName: 'photo.jpg', declaredMimeType: 'application/pdf', size: 100 })).toThrow('MIME_EXTENSION_MISMATCH');
   });
 
-  it('rejects oversized files', () => {
-    expect(() => validateEvidenceMetadata({ fileName: 'photo.jpg', declaredMimeType: 'image/jpeg', size: 16 * 1024 * 1024 })).toThrow('FILE_SIZE_NOT_ALLOWED');
+  it('accepts files at the 15 MB limit', () => {
+    expect(() => validateEvidenceMetadata({ fileName: 'photo.jpg', declaredMimeType: 'image/jpeg', size: 15 * 1024 * 1024 })).not.toThrow();
+  });
+
+  it('rejects files larger than 15 MB', () => {
+    expect(() => validateEvidenceMetadata({ fileName: 'photo.jpg', declaredMimeType: 'image/jpeg', size: (15 * 1024 * 1024) + 1 })).toThrow('FILE_SIZE_NOT_ALLOWED');
   });
 
   it('accepts Google Workspace files when linked from Drive', () => {

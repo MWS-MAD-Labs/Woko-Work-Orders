@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import cookie from '@fastify/cookie';
+import { evidenceRules } from '@woko/domain';
 import { ZodError } from 'zod';
 import { config } from './config.js';
 import { sql } from './database/client.js';
@@ -14,6 +15,8 @@ import { reportRoutes } from './reports.js';
 import { adminLocationRoutes } from './admin-locations.js';
 import { adminWorkSettingRoutes } from './admin-work-settings.js';
 import { workListRoutes } from './work-lists.js';
+
+const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
 
 export async function buildApp() {
   const app = Fastify({ logger: true, trustProxy: true, genReqId: () => crypto.randomUUID() });
@@ -34,7 +37,7 @@ export async function buildApp() {
   await app.register(rateLimit, { max: 100, timeWindow: '1 minute' });
   await app.register(cookie);
   await app.register(multipart, {
-    limits: { files: 1, fields: 4, parts: 5, fileSize: 15 * 1024 * 1024, fieldSize: 10 * 1024 },
+    limits: { files: 1, fields: 4, parts: 5, fileSize: evidenceRules.maxFileSizeBytes, fieldSize: 10 * 1024 },
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -42,6 +45,9 @@ export async function buildApp() {
       || (error instanceof Error && error.name === 'ZodError' && 'flatten' in error && typeof error.flatten === 'function');
     if (isZodError) {
       return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: 'Please check the submitted information.', details: (error as ZodError).flatten(), requestId: request.id } });
+    }
+    if (typeof error === 'object' && error !== null && 'statusCode' in error && error.statusCode === 413) {
+      return reply.code(413).send({ error: { code: 'FILE_SIZE_NOT_ALLOWED', message: `File must be ${maxUploadMegabytes} MB or smaller.`, requestId: request.id } });
     }
     request.log.error(error);
     return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.', requestId: request.id } });

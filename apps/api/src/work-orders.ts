@@ -6,6 +6,8 @@ import { sql } from './database/client.js';
 import { createUserDriveShortcut, deleteDriveFile, extractDriveFileId, linkExistingDriveFile, provisionWorkOrderFolder, rollbackUserDriveShortcut, shareDriveFileWithEditors, uploadDriveFile, type DriveSubfolderMap } from './drive.js';
 import { isCompletionPhoto, prepareEvidenceUpload, validateLinkedDriveFile } from './evidence.js';
 
+const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
+
 const participantsSchema = z.object({
   assigneeIds: z.array(z.string().uuid()).min(1).max(20),
   workerIds: z.array(z.string().uuid()).max(50).default([]),
@@ -686,7 +688,8 @@ export async function workOrderRoutes(app: FastifyInstance) {
       prepared = await prepareEvidenceUpload({ fileName: upload.filename, mimeType: upload.mimetype, buffer: await upload.toBuffer() });
     } catch (error) {
       const code = error instanceof Error ? error.message : 'INVALID_FILE';
-      return reply.code(code === 'FILE_SIZE_NOT_ALLOWED' ? 413 : 422).send({ error: { code, message: 'The selected file type, extension, content, or size is not allowed.', requestId: request.id } });
+      const message = code === 'FILE_SIZE_NOT_ALLOWED' ? `File must be ${maxUploadMegabytes} MB or smaller.` : 'The selected file type, extension, or content is not allowed.';
+      return reply.code(code === 'FILE_SIZE_NOT_ALLOWED' ? 413 : 422).send({ error: { code, message, requestId: request.id } });
     }
     const driveFile = await uploadDriveFile({ folderId, fileName: prepared.fileName, mimeType: prepared.mimeType, buffer: prepared.buffer });
     try {

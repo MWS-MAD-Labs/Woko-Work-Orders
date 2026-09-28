@@ -1,4 +1,7 @@
+import { evidenceRules } from '@woko/domain';
+
 const apiUrl = import.meta.env.VITE_API_URL ?? '/api/v1';
+const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number, public readonly code?: string) {
@@ -50,6 +53,7 @@ export function uploadWithProgress<T>(path: string, formData: FormData, onProgre
       let body: { data?: T; error?: { message?: string; code?: string } } = {};
       try { body = JSON.parse(request.responseText); } catch { /* Use the generic error below. */ }
       if (request.status >= 200 && request.status < 300 && body.data !== undefined) resolve(body.data);
+      else if (request.status === 413) reject(new ApiError(body.error?.message ?? `File must be ${maxUploadMegabytes} MB or smaller.`, request.status, body.error?.code ?? 'FILE_SIZE_NOT_ALLOWED'));
       else reject(new ApiError(body.error?.message ?? 'Upload failed', request.status, body.error?.code));
     });
     request.addEventListener('error', () => reject(new Error('Upload failed')));
