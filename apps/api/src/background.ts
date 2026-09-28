@@ -154,8 +154,8 @@ export async function generateWorkListNotifications(localDate: string, now = new
       where status='MISSED'
         and due_at < (${localDate}::date at time zone ${config.APP_TIME_ZONE})
         and due_at >= ((${localDate}::date - 14) at time zone ${config.APP_TIME_ZONE})
-      group by (due_at at time zone ${config.APP_TIME_ZONE})::date
-      order by (due_at at time zone ${config.APP_TIME_ZONE})::date
+      group by due_date
+      order by due_date
     `;
     for (const digest of missedDates) await sql`
       insert into notifications (recipient_user_id, type, title, message, idempotency_key)

@@ -1,7 +1,40 @@
-import { describe, expect, it } from 'vitest';
-import { localDateInTimeZone, localTimeInTimeZone, notificationPushBody, notificationTargetUrl, reminderType, shouldGenerateDailyWorkListReminder } from './background.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { generateWorkListNotifications, localDateInTimeZone, localTimeInTimeZone, notificationPushBody, notificationTargetUrl, reminderType, shouldGenerateDailyWorkListReminder } from './background.js';
+
+const { sqlMock } = vi.hoisted(() => ({
+  sqlMock: vi.fn<(strings: TemplateStringsArray, ...parameters: unknown[]) => Promise<unknown[]>>(),
+}));
+vi.mock('./database/client.js', () => ({ sql: sqlMock }));
+vi.mock('./config.js', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./config.js')>();
+  return { ...original, config: { ...original.config, APP_TIME_ZONE: 'Asia/Jakarta' } };
+});
+
+afterEach(() => {
+  vi.resetAllMocks();
+
+});
 
 describe('notification reminder scheduling', () => {
+  it('groups missed digests by the selected local date without repeating timezone parameters', async () => {
+
+    sqlMock.mockResolvedValue([]);
+    sqlMock.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { due_date: '2026-09-27', count: 2, examples: ['Daily checks · Office'] },
+    ]);
+
+    await generateWorkListNotifications('2026-09-28', new Date('2026-09-28T00:00:00Z'));
+
+    expect(sqlMock).toHaveBeenCalledTimes(3);
+    const [strings, ...parameters] = sqlMock.mock.calls[1]!;
+    const query = strings.join('?').replace(/\s+/g, ' ').trim();
+    expect(query).toContain('select (due_at at time zone ?)::date::text as due_date');
+    expect(query).toContain('group by due_date order by due_date');
+    expect(parameters).toEqual(['Asia/Jakarta', '2026-09-28', 'Asia/Jakarta', '2026-09-28', 'Asia/Jakarta']);
+    expect(sqlMock.mock.calls[2]).toContain('Missed Routine Work · 2026-09-27');
+    expect(sqlMock.mock.calls[2]).toContain('work-list-missed-digest:2026-09-27:');
+  });
+
   it('uses the Asia/Jakarta calendar date', () => {
     expect(localDateInTimeZone(new Date('2026-07-17T17:30:00Z'), 'Asia/Jakarta')).toBe('2026-07-18');
   });
