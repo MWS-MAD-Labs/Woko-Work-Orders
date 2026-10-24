@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { addMonths, endOfMonth, endOfWeek, format } from 'date-fns';
 import { ArrowLeft, ArrowRight, Check, ExternalLink, FileUp, FolderSearch, RotateCcw, X } from 'lucide-react';
 import { blockerCategories, evidenceRules, evidenceTypes, priorities, proposalDecisions, type EvidenceType, type ProposalDecision, type TaskCondition, type WorkflowStage } from '@woko/domain';
@@ -474,6 +474,9 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
   const [file, setFile] = useState<File | null>(null);
   const [attachmentId, setAttachmentId] = useState<string | null>(null);
   const [workVersion, setWorkVersion] = useState(order.version);
+  // Refresh after edits elsewhere in the drawer, but retain upload-returned
+  // versions while the parent still holds the same order snapshot.
+  useEffect(() => { setWorkVersion(order.version); }, [order.id, order.version]);
   const [showDriveBrowser, setShowDriveBrowser] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
