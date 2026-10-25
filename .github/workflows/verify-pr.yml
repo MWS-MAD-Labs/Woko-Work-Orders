@@ -1,0 +1,50 @@
+name: Verify pull request
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: woko_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: woko_facilities_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U woko_test -d woko_facilities_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://woko_test@127.0.0.1:5432/woko_facilities_test
+      AUTH_MODE: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build shared domain
+        run: npm run build -w @woko/domain
+      - name: Apply migrations to disposable database
+        run: npm run db:migrate
+      - name: Unit and UI tests
+        run: npm test
+      - name: PostgreSQL facilities integration tests
+        run: npm run test:integration -w @woko/api
+      - name: Type check
+        run: npm run typecheck
+      - name: Production build
+        run: npm run build

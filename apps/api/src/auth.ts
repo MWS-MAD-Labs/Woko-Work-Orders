@@ -58,12 +58,22 @@ export function oauthClient(redirectUri = `${config.APP_BASE_URL}/api/v1/auth/ca
 
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   if (config.AUTH_MODE === 'test') {
+    const userId = request.headers['x-test-user-id'] ?? '30000000-0000-4000-8000-000000000001';
+    const rows = await sql<Array<{ id: string; email: string; full_name: string; active: boolean; preferred_locale: 'id' | 'en'; roles: Role[] }>>`
+      select u.id, u.email::text, u.full_name, u.active, u.preferred_locale,
+        coalesce(array_agg(ur.role) filter (where ur.role is not null), '{}') as roles
+      from users u left join user_roles ur on ur.user_id = u.id
+      where u.id = ${userId}::uuid
+      group by u.id
+    `;
+    const user = rows[0];
+    if (!user || !user.active) return reply.code(401).send({ error: { code: 'AUTHENTICATION_REQUIRED', message: 'Test user is not active.', requestId: request.id } });
     request.currentUser = {
-      id: '30000000-0000-4000-8000-000000000001',
-      email: 'manager@millennia21.id',
-      fullName: 'Test Manager',
-      roles: ['ADMINISTRATOR'],
-      preferredLocale: 'id',
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      roles: user.roles,
+      preferredLocale: user.preferred_locale,
       sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     };
     return;

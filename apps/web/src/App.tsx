@@ -1,5 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, Plus, Printer, Search, Settings, ShieldAlert, Trash2, UserCheck, X } from 'lucide-react';
+import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, ChevronDown, ClipboardCheck, Clock3, Eye, ExternalLink, FileText, Filter, HardHat, Languages, LogIn, LogOut, MapPin, Menu, MessageCircle, PackagePlus, Plus, Printer, Search, Settings, ShieldAlert, Trash2, UserCheck, X } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
@@ -12,6 +12,7 @@ import { NotificationsView } from './NotificationsView';
 import { subscribeToPushNotifications } from './push';
 import { ReportsView } from './ReportsView';
 import { WorkListsView } from './WorkListsView';
+import { FacilitiesView } from './FacilitiesView';
 
 import { getProgressActionLabel, getProjectPhases, getProjectProgress, getUpdateLabel } from './work-order-progress';
 import { formatParticipantChanges } from './participant-change';
@@ -261,7 +262,7 @@ export default function App() {
   const [showApprovals, setShowApprovals] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showReports, setShowReports] = useState(false);
-  const [primaryPage, setPrimaryPage] = useState<'work-orders' | 'work-lists'>(() => new URLSearchParams(window.location.search).get('view') === 'work-lists' ? 'work-lists' : 'work-orders');
+  const [primaryPage, setPrimaryPage] = useState<'work-orders' | 'work-lists' | 'facilities'>(() => new URLSearchParams(window.location.search).get('view') === 'work-lists' ? 'work-lists' : new URLSearchParams(window.location.search).get('view') === 'facilities' ? 'facilities' : 'work-orders');
 
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [pushStatus, setPushStatus] = useState<'idle' | 'subscribing' | 'subscribed' | 'unsupported' | 'unavailable' | 'denied' | 'failed'>('idle');
@@ -274,7 +275,7 @@ export default function App() {
     const controller = new AbortController();
     urlSyncController.current = controller;
     const params = new URLSearchParams(window.location.search);
-    setPrimaryPage(params.get('view') === 'work-lists' ? 'work-lists' : 'work-orders');
+    setPrimaryPage(params.get('view') === 'work-lists' ? 'work-lists' : params.get('view') === 'facilities' ? 'facilities' : 'work-orders');
     const workOrderId = params.get('workOrder');
     if (!workOrderId) {
       setSelected(null);
@@ -332,11 +333,11 @@ export default function App() {
     };
   }, [syncFromUrl]);
 
-  const navigatePrimaryPage = (page: 'work-orders' | 'work-lists') => {
+  const navigatePrimaryPage = (page: 'work-orders' | 'work-lists' | 'facilities') => {
     urlSyncController.current?.abort();
     const url = new URL(window.location.href);
-    if (page === 'work-lists') url.searchParams.set('view', 'work-lists');
-    else url.searchParams.delete('view');
+    if (page === 'work-orders') url.searchParams.delete('view');
+    else url.searchParams.set('view', page);
     url.searchParams.delete('workOrder');
     window.history.pushState({}, '', url);
     setSelected(null);
@@ -393,7 +394,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a>
-      <nav aria-label={locale === 'id' ? 'Navigasi utama' : 'Primary navigation'}><button className={`nav-item nav-button${primaryPage === 'work-orders' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /> {t('workOrders')}</button><button className={`nav-item nav-button${primaryPage === 'work-lists' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /> {locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
+      <nav aria-label={locale === 'id' ? 'Navigasi utama' : 'Primary navigation'}><button className={`nav-item nav-button${primaryPage === 'work-orders' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /> {t('workOrders')}</button><button className={`nav-item nav-button${primaryPage === 'work-lists' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /> {locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</button><button className={`nav-item nav-button${primaryPage === 'facilities' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /> {locale === 'id' ? 'Fasilitas' : 'Facilities'}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
       <div className="sidebar-footer"><button className="quiet-language-button" onClick={changeLocale} title={t('language')}><Languages /> {locale === 'id' ? 'English' : 'Bahasa Indonesia'}</button><div className="sidebar-user"><Avatar name={currentUser.fullName} photoUrl={currentUser.profilePhotoUrl} /><strong>{currentUser.fullName}</strong></div></div>
     </aside>
 
@@ -423,12 +424,12 @@ export default function App() {
               return <section className="work-section" key={group}><header><span className={`section-indicator section-${group.toLowerCase()}`} /><h2>{t(group)}</h2><span className="section-count">{groupOrders.length}</span><button className="icon-button small" aria-label={`${locale === 'id' ? 'Ciutkan' : 'Collapse'} ${t(group)}`}><ChevronDown /></button></header><div className="card-grid">{groupOrders.map((order) => <WorkOrderCard key={order.id} order={order} locale={locale} onOpen={() => openOrder(order)} />)}</div></section>;
             })}
           </div>
-        </> : <WorkListsView currentUser={currentUser} locale={locale} />}
+        </> : primaryPage === 'work-lists' ? <WorkListsView currentUser={currentUser} locale={locale} /> : <FacilitiesView currentUser={currentUser} locale={locale} />}
       </div>
     </main>
 
     {canCreate && primaryPage === 'work-orders' && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
-    <nav className="bottom-nav" aria-label={locale === 'id' ? 'Navigasi seluler' : 'Mobile navigation'}><button className={primaryPage === 'work-orders' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button className={primaryPage === 'work-lists' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /><span>{locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
+    <nav className="bottom-nav" aria-label={locale === 'id' ? 'Navigasi seluler' : 'Mobile navigation'}><button className={primaryPage === 'work-orders' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button className={primaryPage === 'work-lists' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /><span>{locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</span></button><button className={primaryPage === 'facilities' ? 'active' : ''} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /><span>{locale === 'id' ? 'Fasilitas' : 'Facilities'}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
     {showOrganizationSettings && managerAccess && references && <OrganizationSettings references={references} administrator={currentUser.roles.includes('ADMINISTRATOR')} locale={locale} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
