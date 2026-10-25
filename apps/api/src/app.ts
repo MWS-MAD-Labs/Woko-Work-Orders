@@ -15,6 +15,7 @@ import { reportRoutes } from './reports.js';
 import { adminLocationRoutes } from './admin-locations.js';
 import { adminWorkSettingRoutes } from './admin-work-settings.js';
 import { workListRoutes } from './work-lists.js';
+import { facilitiesRequestRoutes } from './facilities-requests.js';
 
 const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
 
@@ -69,5 +70,6 @@ export async function buildApp() {
   await app.register(adminLocationRoutes, { prefix: '/api/v1' });
   await app.register(adminWorkSettingRoutes, { prefix: '/api/v1' });
   await app.register(workListRoutes, { prefix: '/api/v1' });
+  await app.register(facilitiesRequestRoutes, { prefix: '/api/v1' });
   return app;
 }

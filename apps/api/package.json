@@ -9,10 +9,11 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build -w @woko/domain && vitest run --passWithNoTests",
+    "test": "npm run build -w @woko/domain && vitest run --passWithNoTests --exclude \"**/*.integration.test.ts\"",
     "db:migrate": "tsx src/database/migrate.ts",
     "db:seed": "tsx src/database/seed.ts",
-    "notifications:preview": "tsx src/scripts/send-notification-previews.ts"
+    "notifications:preview": "tsx src/scripts/send-notification-previews.ts",
+    "test:integration": "npm run build -w @woko/domain && vitest run src/facilities-requests.integration.test.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
