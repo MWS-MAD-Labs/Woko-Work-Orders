@@ -96,12 +96,8 @@ interface WorkOrderRow {
   updated_at: string;
 }
 
-function isManager(roles: readonly Role[]): boolean {
-  return rolesCan(roles, 'work-order:manage');
-}
-
 export function resolveWorkOrderScope(roles: readonly Role[], requestedScope: 'all' | 'mine'): 'all' | 'mine' {
-  return isManager(roles) ? requestedScope : 'mine';
+  return rolesCan(roles, 'work-order:read-all') ? requestedScope : 'mine';
 }
 
 export function canDecideProposal(approverId: string, picIds: readonly string[]): boolean {
@@ -160,7 +156,7 @@ function participantsHaveEligibleRoles(participants: Array<{ id: string; roles: 
 }
 
 async function canDiscussProgress(workOrderId: string, userId: string, roles: readonly Role[]): Promise<boolean> {
-  if (isManager(roles)) return true;
+  if (rolesCan(roles, 'work-order:operate-any')) return true;
   const rows = await sql`
     select 1 from work_orders wo where wo.id = ${workOrderId} and wo.reviewer_id = ${userId}
     union all select 1 from work_order_assignees where work_order_id = ${workOrderId} and user_id = ${userId}
@@ -292,7 +288,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: { users, campuses, buildings, locationOptions, workOptions, periods } };
   });
 
-  app.get('/approvals', { preHandler: requirePermission('work-order:manage') }, async (request) => {
+  app.get('/approvals', { preHandler: requirePermission('work-order:approve') }, async (request) => {
     const [proposalApprovals, completionReviews, internalProcurementReviews] = await Promise.all([
       sql`
         select wo.id, wo.work_order_number, wo.title, wo.priority, wo.due_date::text,
@@ -404,7 +400,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
 
   app.get('/work-orders/:id', async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
-    const rows = can(request.currentUser.permissions, 'work-order:manage')
+    const rows = can(request.currentUser.permissions, 'work-order:read-all')
       ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and wo.removed_at is null`
       : await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and wo.removed_at is null and (
           exists (select 1 from work_order_assignees visible_pic where visible_pic.work_order_id = wo.id and visible_pic.user_id = ${request.currentUser.id})
@@ -642,7 +638,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return reply.code(201).send({ data: { ...result, driveProvisioningStatus: provisioning.status } });
   });
 
-  app.post('/work-orders/:id/drive/retry', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.post('/work-orders/:id/drive/retry', { preHandler: requirePermission('work-order:operate-any') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const rows = await sql<Array<{ work_order_number: string; title: string; drive_provisioning_status: string }>>`
       select work_order_number, title, drive_provisioning_status from work_orders where id = ${id}
@@ -674,7 +670,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const assignedPic = await isWorkOrderPic(id, request.currentUser.id);
     const assignedWorker = await isAssignedWorker(id, request.currentUser.id);
     const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
-    if (!can(request.currentUser.permissions, 'work-order:manage') && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
+    if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
     if (attachmentContext === 'INTERNAL_PROCUREMENT' && workOrder.work_type !== 'INTERNAL') return reply.code(422).send({ error: { code: 'INTERNAL_WORK_REQUIRED', message: 'Internal procurement attachments require internal work.', requestId: request.id } });
     if (attachmentContext === 'VENDOR_PROPOSAL' && workOrder.work_type !== 'VENDOR') return reply.code(422).send({ error: { code: 'VENDOR_WORK_REQUIRED', message: 'Vendor proposal attachments require vendor work.', requestId: request.id } });
     if (workOrder.drive_provisioning_status !== 'COMPLETE') return reply.code(422).send({ error: { code: 'DRIVE_NOT_READY', message: 'The work-order Drive folder is not ready.', requestId: request.id } });
@@ -733,7 +729,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const assignedPic = await isWorkOrderPic(id, request.currentUser.id);
     const assignedWorker = await isAssignedWorker(id, request.currentUser.id);
     const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
-    if (!can(request.currentUser.permissions, 'work-order:manage') && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
+    if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
     if (attachmentContext === 'INTERNAL_PROCUREMENT' && workOrder.work_type !== 'INTERNAL') return reply.code(422).send({ error: { code: 'INTERNAL_WORK_REQUIRED', message: 'Internal procurement attachments require internal work.', requestId: request.id } });
     if (attachmentContext === 'VENDOR_PROPOSAL' && workOrder.work_type !== 'VENDOR') return reply.code(422).send({ error: { code: 'VENDOR_WORK_REQUIRED', message: 'Vendor proposal attachments require vendor work.', requestId: request.id } });
     if (workOrder.drive_provisioning_status !== 'COMPLETE') return reply.code(422).send({ error: { code: 'DRIVE_NOT_READY', message: 'The work-order Drive folder is not ready.', requestId: request.id } });
@@ -781,7 +777,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const workOrder = rows[0];
     if (!workOrder) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
     if (workOrder.version !== input.expectedVersion) return reply.code(409).send({ error: { code: 'VERSION_CONFLICT', message: 'Reload the work order before linking evidence.', requestId: request.id } });
-    if (!can(request.currentUser.permissions, 'work-order:manage') && !(await isWorkOrderPic(id, request.currentUser.id))) return reply.code(403).send({ error: { code: 'NOT_ASSIGNED', message: 'Only a PIC or Facilities Manager can add evidence.', requestId: request.id } });
+    if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await isWorkOrderPic(id, request.currentUser.id))) return reply.code(403).send({ error: { code: 'NOT_ASSIGNED', message: 'Only a PIC or Facilities Manager can add evidence.', requestId: request.id } });
     if (workOrder.drive_provisioning_status !== 'COMPLETE') return reply.code(422).send({ error: { code: 'DRIVE_NOT_READY', message: 'The work-order Drive folder is not ready.', requestId: request.id } });
     const folderId = workOrder.drive_subfolders[input.evidenceType];
     const sourceFileId = extractDriveFileId(input.driveUrl);
@@ -837,7 +833,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE') return { error: 'WORK_ORDER_NOT_ACTIVE' } as const;
-      const isManager = can(request.currentUser.permissions, 'work-order:manage');
+      const isManager = can(request.currentUser.permissions, 'work-order:operate-any');
       if (!isManager && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length) return { error: 'NOT_ASSIGNED' } as const;
             if (workOrder.condition === input.condition) return { error: 'CONDITION_UNCHANGED' } as const;
 
@@ -895,7 +891,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (workOrder.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE') return { error: 'WORK_ORDER_NOT_ACTIVE' } as const;
       const assigned = await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`;
-      const mayManageParticipants = can(request.currentUser.permissions, 'work-order:manage') || assigned.length > 0 || workOrder.reviewer_id === request.currentUser.id;
+      const mayManageParticipants = can(request.currentUser.permissions, 'work-order:manage-participants') || assigned.length > 0 || workOrder.reviewer_id === request.currentUser.id;
       if (!mayManageParticipants) return { error: 'PARTICIPANT_MANAGEMENT_FORBIDDEN' } as const;
       if (workOrder.work_type === 'VENDOR' && input.workerIds.length) return { error: 'VENDOR_WORKERS_NOT_ALLOWED' } as const;
       const participantIds = [...new Set([...input.assigneeIds, ...input.workerIds, ...(input.reviewerId ? [input.reviewerId] : []), ...input.overseerIds])];
@@ -984,7 +980,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.patch('/work-orders/:id/priority', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.patch('/work-orders/:id/priority', { preHandler: requirePermission('work-order:set-schedule') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = prioritySchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1025,7 +1021,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.patch('/work-orders/:id/due-date', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.patch('/work-orders/:id/due-date', { preHandler: requirePermission('work-order:set-schedule') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = changeDueDateSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1084,7 +1080,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (workOrder.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.work_type !== 'VENDOR') return { error: 'VENDOR_WORK_REQUIRED' } as const;
       if (workOrder.status !== 'ACTIVE' || !['PLANNED', 'FINDING_VENDOR'].includes(workOrder.workflow_stage)) return { error: 'INVALID_VENDOR_STAGE' } as const;
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length) return { error: 'NOT_ASSIGNED' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length) return { error: 'NOT_ASSIGNED' } as const;
             const details = {
         vendorSearchNote: input.vendorSearchNote,
         potentialVendorName: input.potentialVendorName,
@@ -1120,7 +1116,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (!current) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
     if (current.version !== input.expectedVersion) return reply.code(409).send({ error: { code: 'VERSION_CONFLICT', message: 'Reload the work order before recording the proposal.', requestId: request.id } });
     if (current.work_type !== 'VENDOR' || current.status !== 'ACTIVE' || !['FINDING_VENDOR', 'PROPOSAL'].includes(current.workflow_stage)) return reply.code(422).send({ error: { code: 'INVALID_VENDOR_STAGE', message: 'The proposal cannot be recorded at this stage.', requestId: request.id } });
-    if (!can(request.currentUser.permissions, 'work-order:manage') && !(await isWorkOrderPic(id, request.currentUser.id))) return reply.code(403).send({ error: { code: 'NOT_ASSIGNED', message: 'Only a PIC or Facilities Manager can record the proposal.', requestId: request.id } });
+    if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await isWorkOrderPic(id, request.currentUser.id))) return reply.code(403).send({ error: { code: 'NOT_ASSIGNED', message: 'Only a PIC or Facilities Manager can record the proposal.', requestId: request.id } });
 
     let transferred: Awaited<ReturnType<typeof createUserDriveShortcut>> | undefined;
     let proposalFolderId: string | undefined;
@@ -1199,7 +1195,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE' || workOrder.workflow_stage !== 'PROPOSAL') return { error: 'INVALID_VENDOR_STAGE' } as const;
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length) return { error: 'NOT_ASSIGNED' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length) return { error: 'NOT_ASSIGNED' } as const;
             const [proposal, evidence] = await Promise.all([
         transaction`select 1 from progress_updates where work_order_id = ${id} and update_type = 'PROPOSAL_SUBMISSION' limit 1`,
         transaction`select 1 from attachments where work_order_id = ${id} and evidence_type = 'PROPOSAL' and removed_at is null limit 1`,
@@ -1221,7 +1217,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
         from work_orders wo
         cross join lateral (
           select wo.reviewer_id as user_id where wo.reviewer_id is not null
-          union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:manage')}::app_role[])
+          union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:approve')}::app_role[])
         ) recipients where wo.id = ${id} and recipients.user_id <> ${request.currentUser.id}
         on conflict do nothing
       `;
@@ -1234,7 +1230,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/proposal/decision', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.post('/work-orders/:id/proposal/decision', { preHandler: requirePermission('work-order:approve') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = proposalDecisionSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1299,7 +1295,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion || workOrder.procurement_version !== input.expectedProcurementVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || !['PLANNED', 'SCHEDULED'].includes(workOrder.workflow_stage)) return { error: 'INTERNAL_ACTIVE_WORK_REQUIRED' } as const;
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
       if (!canTransitionProcurement(workOrder.procurement_status, 'PROPOSAL_REQUIRED')) return { error: 'INVALID_PROCUREMENT_TRANSITION' } as const;
       await transaction`update internal_procurement_proposals set status = 'PROPOSAL_REQUIRED', requirement_note = ${input.requirementNote}, submitted_by = null, submitted_at = null, decided_by = null, decided_at = null, decision_note = null, version = version + 1, updated_at = now() where work_order_id = ${id}`;
       await transaction`update work_orders set workflow_stage = 'PLANNED', version = version + 1, updated_at = now() where id = ${id}`;
@@ -1324,7 +1320,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion || workOrder.procurement_version !== input.expectedProcurementVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || workOrder.procurement_status === 'NOT_REQUIRED') return { error: 'PROCUREMENT_NOT_ACTIVE' } as const;
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
       await transaction`update internal_procurement_proposals set requirement_note = ${input.requirementNote}, version = version + 1, updated_at = now() where work_order_id = ${id}`;
       await transaction`update work_orders set version = version + 1, updated_at = now() where id = ${id}`;
       await transaction`insert into progress_updates (work_order_id, update_type, note, structured_data, created_by) values (${id}, 'PROCUREMENT_NOTE_UPDATED', ${input.requirementNote}, ${transaction.json({ previousNote: workOrder.requirement_note, requirementNote: input.requirementNote })}, ${request.currentUser.id})`;
@@ -1348,7 +1344,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion || workOrder.procurement_version !== input.expectedProcurementVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL') return { error: 'INTERNAL_ACTIVE_WORK_REQUIRED' } as const;
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
       if (!canTransitionProcurement(workOrder.procurement_status, 'SUBMITTED')) return { error: 'INVALID_PROCUREMENT_TRANSITION' } as const;
       const attachments = await transaction<Array<{ id: string }>>`select id from attachments where work_order_id = ${id} and uploaded_by = ${request.currentUser.id} and evidence_type = 'PROPOSAL' and attachment_context = 'INTERNAL_PROCUREMENT' and status in ('PENDING', 'ATTACHED') and removed_at is null and id = any(${input.attachmentIds}::uuid[])`;
       if (attachments.length !== input.attachmentIds.length) return { error: 'PROCUREMENT_PROPOSAL_REQUIRED' } as const;
@@ -1364,7 +1360,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/procurement-proposal/decision', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.post('/work-orders/:id/procurement-proposal/decision', { preHandler: requirePermission('work-order:approve') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = decideProcurementSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1404,7 +1400,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (workOrder.version !== input.expectedVersion || workOrder.procurement_version !== input.expectedProcurementVersion) return { error: 'VERSION_CONFLICT' } as const;
       if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || !canTransitionProcurement(workOrder.procurement_status, 'NOT_REQUIRED')) return { error: 'INVALID_PROCUREMENT_TRANSITION' } as const;
       const assignedPic = Boolean((await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id}`).length);
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !assignedPic) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic) return { error: 'PROCUREMENT_FORBIDDEN' } as const;
       await transaction`update internal_procurement_proposals set status = 'NOT_REQUIRED', requirement_note = null, submitted_by = null, submitted_at = null, decided_by = null, decided_at = null, decision_note = null, version = version + 1, updated_at = now() where work_order_id = ${id}`;
       await transaction`update work_orders set workflow_stage = case when workflow_stage = 'PLANNED' then 'SCHEDULED' else workflow_stage end, version = version + 1, updated_at = now() where id = ${id}`;
       await transaction`insert into progress_updates (work_order_id, update_type, note, structured_data, created_by) values (${id}, 'PROCUREMENT_NO_LONGER_REQUIRED', ${input.reason}, ${transaction.json({ previousStatus: workOrder.procurement_status, status: 'NOT_REQUIRED' })}, ${request.currentUser.id})`;
@@ -1428,7 +1424,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!canRecordMidProgress(workOrder.status, workOrder.workflow_stage)) return { error: 'INVALID_PROGRESS_STAGE' } as const;
       const assignedPic = Boolean((await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
       const assignedWorker = Boolean((await transaction`select 1 from work_order_workers where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !assignedPic && !canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage })) return { error: 'NOT_ASSIGNED' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage })) return { error: 'NOT_ASSIGNED' } as const;
       const linkedAttachments = input.attachmentIds.length ? await transaction<Array<{ id: string }>>`
         select id from attachments
         where work_order_id = ${id} and uploaded_by = ${request.currentUser.id} and removed_at is null and status in ('PENDING', 'ATTACHED')
@@ -1476,7 +1472,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (workOrder.status !== 'ACTIVE' || workOrder.work_type !== 'INTERNAL' || workOrder.workflow_stage !== 'IN_PROGRESS') return { error: 'INVALID_PROGRESS_STAGE' } as const;
       const assignedPic = Boolean((await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
       const assignedWorker = Boolean((await transaction`select 1 from work_order_workers where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
-      if (!can(request.currentUser.permissions, 'work-order:manage') && !assignedPic && !assignedWorker) return { error: 'NOT_ASSIGNED' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !assignedWorker) return { error: 'NOT_ASSIGNED' } as const;
       if (workOrder.procurement_status && !['NOT_REQUIRED', 'APPROVED'].includes(workOrder.procurement_status)) return { error: 'PROCUREMENT_UNRESOLVED' } as const;
       const linkedAttachments = input.attachmentIds.length ? await transaction<Array<{ id: string }>>`
         select id from attachments
@@ -1508,7 +1504,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
         select recipients.user_id, ${id}, 'COMPLETION_REVIEW_SUBMITTED', ${`${workOrder.work_order_number}: completion review submitted`}, ${`${workOrder.title}: ${input.note}`}
         from (
           select ${workOrder.reviewer_id}::uuid as user_id where ${workOrder.reviewer_id}::uuid is not null
-          union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:manage')}::app_role[])
+          union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:approve')}::app_role[])
         ) recipients where recipients.user_id <> ${request.currentUser.id}
       `;
       return { version: workOrder.version + 1 } as const;
@@ -1533,7 +1529,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       const workOrder = rows[0];
       if (!workOrder) return { error: 'NOT_FOUND' } as const;
       if (workOrder.version !== input.expectedVersion) return { error: 'VERSION_CONFLICT' } as const;
-      const isManager = can(request.currentUser.permissions, 'work-order:manage');
+      const isManager = can(request.currentUser.permissions, 'work-order:operate-any');
       if (!isManager && !(await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length) return { error: 'NOT_ASSIGNED' } as const;
             const evidence = await transaction<Array<{ evidence_type: EvidenceType; mime_type: string }>>`
               select evidence_type, mime_type from attachments where work_order_id = ${id} and status = 'ATTACHED' and removed_at is null
@@ -1595,7 +1591,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
           select recipients.user_id, ${id}, 'COMPLETION_REVIEW_SUBMITTED', ${`${workOrder.work_order_number}: completion review submitted`}, ${`${workOrder.title}: ${completionSummary}`}
           from (
             select ${workOrder.reviewer_id}::uuid as user_id where ${workOrder.reviewer_id}::uuid is not null
-            union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:manage')}::app_role[])
+            union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:approve')}::app_role[])
           ) recipients where recipients.user_id <> ${request.currentUser.id}
         `;
       } else if (workOrder.workflow_stage === 'REVIEW') {
@@ -1615,7 +1611,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/reopen', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.post('/work-orders/:id/reopen', { preHandler: requirePermission('work-order:reopen') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ reason: z.string().trim().min(3).max(1000), expectedVersion: z.number().int().positive() }).parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1655,7 +1651,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/cancel', { preHandler: requirePermission('work-order:manage') }, async (request, reply) => {
+  app.post('/work-orders/:id/cancel', { preHandler: requirePermission('work-order:cancel') }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ reason: z.string().trim().min(3).max(1000), expectedVersion: z.number().int().positive() }).parse(request.body);
     const result = await sql.begin(async (transaction) => {

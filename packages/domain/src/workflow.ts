@@ -36,13 +36,14 @@ export function validateTransition(request: TransitionRequest): TransitionResult
   const stages = workflowByType[request.workType];
   const fromIndex = stages.indexOf(request.from);
   const toIndex = stages.indexOf(request.to);
-  const isManager = rolesCan(request.roles, 'work-order:manage');
+  const canApprove = rolesCan(request.roles, 'work-order:approve');
+  const isManager = rolesCan(request.roles, 'work-order:transition-any');
   const isPersonInCharge = rolesCan(request.roles, 'work-order:be-pic');
 
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return { allowed: false, code: 'INVALID_STAGE' };
 
-  if (request.to === 'COMPLETED' && !isManager) return { allowed: false, code: 'MANAGER_APPROVAL_REQUIRED' };
-  if (request.from === 'APPROVAL' && !isManager) return { allowed: false, code: 'MANAGER_APPROVAL_REQUIRED' };
+  if (request.to === 'COMPLETED' && !canApprove) return { allowed: false, code: 'MANAGER_APPROVAL_REQUIRED' };
+  if (request.from === 'APPROVAL' && !canApprove) return { allowed: false, code: 'MANAGER_APPROVAL_REQUIRED' };
   if (request.workType === 'VENDOR' && request.from === 'APPROVAL') return { allowed: false, code: 'PROPOSAL_DECISION_REQUIRED' };
   if (request.workType === 'VENDOR' && (
     (request.from === 'PLANNED' && request.to === 'FINDING_VENDOR') ||

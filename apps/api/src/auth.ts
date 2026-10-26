@@ -119,7 +119,11 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
 
 const missingPermissionMessage: Partial<Record<Permission, string>> = {
   'work-order:create': 'Administrator, Facilities Manager, or PIC permission is required.',
-  'work-order:manage': 'Facilities Manager permission is required.',
+  'work-order:approve': 'Facilities Manager permission is required.',
+  'work-order:reopen': 'Facilities Manager permission is required.',
+  'work-order:cancel': 'Facilities Manager permission is required.',
+  'work-order:set-schedule': 'Facilities Manager permission is required.',
+  'work-order:operate-any': 'Facilities Manager permission is required.',
   'users:manage': 'Administrator permission is required.',
   'settings:manage': 'Administrator permission is required.',
 };
