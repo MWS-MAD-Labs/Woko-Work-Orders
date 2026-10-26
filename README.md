@@ -62,7 +62,7 @@ docs/
    cp .env.example .env
    ```
 
-2. Update `.env` for local PostgreSQL and Google authentication. Keep real credentials and service-account JSON files outside version control.
+2. Check `.env`. The defaults sign you in as a local test user (`AUTH_MODE=test`), so no Google credentials are needed. Set `AUTH_MODE=google` and fill in the `GOOGLE_*` keys only when you want real Google sign-in. Keep real credentials and service-account JSON files outside version control.
 
 3. Install dependencies and start PostgreSQL:
 
@@ -80,7 +80,19 @@ docs/
    npm run dev
    ```
 
-5. Open `http://localhost:5173`.
+5. With `AUTH_MODE=test` the API signs every request in as the user `30000000-0000-4000-8000-000000000001`, and the seed does not create users. Add that user once:
+
+   ```bash
+   docker compose exec postgres psql -U woko -d woko -c "
+     insert into users (id, email, full_name)
+     values ('30000000-0000-4000-8000-000000000001', 'dev.admin@millennia21.id', 'Dev Admin')
+     on conflict do nothing;
+     insert into user_roles (user_id, role)
+     values ('30000000-0000-4000-8000-000000000001', 'ADMINISTRATOR')
+     on conflict do nothing;"
+   ```
+
+6. Open `http://localhost:5173`.
 
 The default development ports are:
 
@@ -88,7 +100,13 @@ The default development ports are:
 - API: `3001`
 - PostgreSQL: `127.0.0.1:5433`
 
-Register `http://localhost:5173/api/v1/auth/callback` as an authorized Google OAuth redirect URI. The first verified identity in the configured Google Workspace domain becomes the initial administrator when no internal users exist; subsequent users must be registered and activated by an administrator.
+With `AUTH_MODE=google`, register `http://localhost:5173/api/v1/auth/callback` as an authorized Google OAuth redirect URI. The first verified identity in the configured Google Workspace domain becomes the initial administrator when no internal users exist; subsequent users must be registered and activated by an administrator.
+
+### Local troubleshooting
+
+- **A port is already in use.** Change `PORT` and `VITE_API_URL` for the API, `POSTGRES_PORT` and `DATABASE_URL` for PostgreSQL, and start the web app with `npm run dev -w @woko/web -- --port 5174` (then set `WEB_ORIGIN` to match).
+- **`EMFILE: too many open files, watch ...` when starting Vite.** The machine ran out of inotify instances, usually because many dev servers are running. Stop some, or raise the limit: `sudo sysctl fs.inotify.max_user_instances=1024` (add `fs.inotify.max_user_instances=1024` to `/etc/sysctl.d/99-inotify.conf` to keep it after a reboot).
+- **The API exits with a `ZodError` about a `GOOGLE_*` key.** An empty value such as `GOOGLE_OAUTH_CLIENT_ID=` is rejected. Remove or comment out the key.
 
 ## Verification
 
