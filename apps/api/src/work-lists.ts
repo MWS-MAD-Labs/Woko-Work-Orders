@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, requireManager } from './auth.js';
+import { rolesCan, rolesWithPermission, type Role } from '@woko/domain';
+import { authenticate, requirePermission } from './auth.js';
 import { generateWorkListOccurrences, localDateInTimeZone } from './background.js';
 import { sql } from './database/client.js';
 import { prepareEvidenceUpload } from './evidence.js';
@@ -13,8 +14,8 @@ const resolveSchema = z.object({ status: z.enum(['NOT_APPLICABLE', 'ISSUE_FOUND'
 const completionNoteSchema = z.string().trim().max(2_000).default('');
 
 
-function manager(roles: readonly string[]) { return roles.includes('ADMINISTRATOR') || roles.includes('FACILITIES_MANAGER'); }
-async function occurrenceAccess(occurrenceId: string, userId: string, roles: readonly string[]): Promise<'ALLOWED' | 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND'> {
+function manager(roles: readonly Role[]) { return rolesCan(roles, 'work-list:manage'); }
+async function occurrenceAccess(occurrenceId: string, userId: string, roles: readonly Role[]): Promise<'ALLOWED' | 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND'> {
   const rows = await sql<Array<{ status: string; assigned: boolean }>>`select status, ${userId} = any(worker_ids) as assigned from work_list_occurrences where id=${occurrenceId}`;
   const occurrence = rows[0];
   if (!occurrence) return 'NOT_FOUND';
@@ -29,14 +30,14 @@ function accessError(access: 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND', requestId: st
   return { status: 403, body: { error: { code: 'FORBIDDEN', message: 'You are no longer assigned to this Routine Work.', requestId } } };
 }
 async function ensureWorkers(workerIds: string[]) {
-  const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_roles ur on ur.user_id = u.id where u.active and ur.role = 'WORKER' and u.id = any(${workerIds}::uuid[])`;
+  const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_roles ur on ur.user_id = u.id where u.active and ur.role = any(${rolesWithPermission('work-list:be-worker')}::app_role[]) and u.id = any(${workerIds}::uuid[])`;
   return rows.length === workerIds.length;
 }
 
 export async function workListRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
 
-  app.get('/work-lists/templates', { preHandler: requireManager }, async () => {
+  app.get('/work-lists/templates', { preHandler: requirePermission('work-list:manage') }, async () => {
     const templates = await sql`
       select t.id, t.title, t.instructions, t.active, t.version, t.created_at::text, t.updated_at::text,
         coalesce((select json_agg(json_build_object('id', i.id, 'title', i.title, 'instructions', i.instructions, 'recurrence', i.recurrence, 'required', i.required, 'sort_order', i.sort_order) order by i.sort_order) from work_list_template_items i where i.template_id = t.id), '[]'::json) items,
@@ -46,7 +47,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: templates };
   });
 
-  app.post('/work-lists/templates', { preHandler: requireManager }, async (request, reply) => {
+  app.post('/work-lists/templates', { preHandler: requirePermission('work-list:manage') }, async (request, reply) => {
     const input = templateSchema.parse(request.body);
     if (!await ensureWorkers(input.workerIds)) return reply.code(422).send({ error: { code: 'INVALID_WORKER', message: 'Every assigned person must be an active Worker.', requestId: request.id } });
     const result = await sql.begin(async (tx) => {
@@ -62,7 +63,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return reply.code(201).send({ data: result });
   });
 
-  app.put('/work-lists/templates/:id', { preHandler: requireManager }, async (request, reply) => {
+  app.put('/work-lists/templates/:id', { preHandler: requirePermission('work-list:manage') }, async (request, reply) => {
     const templateId = id.parse((request.params as { id: string }).id); const input = templateSchema.parse(request.body);
     if (!await ensureWorkers(input.workerIds)) return reply.code(422).send({ error: { code: 'INVALID_WORKER', message: 'Every assigned person must be an active Worker.', requestId: request.id } });
     const changed = await sql.begin(async (tx) => {

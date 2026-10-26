@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { workTypes, executionWindows } from '@woko/domain';
-import { authenticate, requireAdministrator } from './auth.js';
+import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
 const optionTypeSchema = z.enum(['WORK_TYPE', 'CATEGORY', 'EXECUTION_WINDOW']);
@@ -10,7 +10,7 @@ const fixedCodes = new Set<string>([...workTypes, ...executionWindows]);
 
 export async function adminWorkSettingRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.addHook('preHandler', requireAdministrator);
+  app.addHook('preHandler', requirePermission('settings:manage'));
 
   app.get('/admin/work-settings', async () => {
     const options = await sql`

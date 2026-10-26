@@ -1,6 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { canCreateWorkOrder, type Role } from '@woko/domain';
+import { can, permissionsForRoles, type Permission, type Role } from '@woko/domain';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from './config.js';
 import { sql } from './database/client.js';
@@ -11,6 +11,7 @@ export interface CurrentUser {
   fullName: string;
   profilePhotoUrl?: string;
   roles: Role[];
+  permissions: Permission[];
   preferredLocale: 'id' | 'en';
   sessionExpiresAt: string;
 }
@@ -73,6 +74,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
       email: user.email,
       fullName: user.full_name,
       roles: user.roles,
+      permissions: permissionsForRoles(user.roles),
       preferredLocale: user.preferred_locale,
       sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     };
@@ -109,25 +111,23 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     fullName: user.full_name,
     profilePhotoUrl: user.profile_photo_url ?? undefined,
     roles: user.roles,
+    permissions: permissionsForRoles(user.roles),
     preferredLocale: user.preferred_locale,
     sessionExpiresAt: user.expires_at,
   };
 }
 
-export async function requireWorkOrderCreator(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!canCreateWorkOrder(request.currentUser.roles)) {
-    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Administrator, Facilities Manager, or PIC permission is required.', requestId: request.id } });
-  }
-}
+const missingPermissionMessage: Partial<Record<Permission, string>> = {
+  'work-order:create': 'Administrator, Facilities Manager, or PIC permission is required.',
+  'work-order:manage': 'Facilities Manager permission is required.',
+  'users:manage': 'Administrator permission is required.',
+  'settings:manage': 'Administrator permission is required.',
+};
 
-export async function requireManager(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!request.currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER')) {
-    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Facilities Manager permission is required.', requestId: request.id } });
-  }
-}
-
-export async function requireAdministrator(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!request.currentUser.roles.includes('ADMINISTRATOR')) {
-    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Administrator permission is required.', requestId: request.id } });
-  }
+export function requirePermission(permission: Permission) {
+  return async function requireThePermission(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (!can(request.currentUser.permissions, permission)) {
+      await reply.code(403).send({ error: { code: 'FORBIDDEN', message: missingPermissionMessage[permission] ?? 'You do not have permission to do this.', requestId: request.id } });
+    }
+  };
 }

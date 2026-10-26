@@ -1,4 +1,5 @@
 import { hostname } from 'node:os';
+import { rolesWithPermission } from '@woko/domain';
 import { config } from './config.js';
 import { sql } from './database/client.js';
 import { sendNotificationEmail } from './email.js';
@@ -130,7 +131,7 @@ export async function generateWorkListNotifications(localDate: string, now = new
       from work_list_occurrences o
       cross join lateral unnest(o.worker_ids) as worker(worker_id)
       join users u on u.id=worker.worker_id and u.active
-      join user_roles role on role.user_id=u.id and role.role='WORKER'
+      join user_roles role on role.user_id=u.id and role.role = any(${rolesWithPermission('work-list:be-worker')}::app_role[])
       where o.status='OPEN' and (o.due_at at time zone ${config.APP_TIME_ZONE})::date=${localDate}::date
         and exists (select 1 from work_list_occurrence_items i where i.occurrence_id=o.id and i.status is null)
       group by u.id

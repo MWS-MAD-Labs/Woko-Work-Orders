@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, requireAdministrator } from './auth.js';
+import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 import { localizeNotification } from './notification-localization.js';
 import { config } from './config.js';
@@ -105,7 +105,7 @@ export async function notificationRoutes(app: FastifyInstance) {
     return { data: { ...localizeNotification(notification, request.currentUser.preferredLocale), created_at: notification.created_at, period_start: periodStart, period_end: periodEnd, items: rows } };
   });
 
-  app.post('/notifications/:id/retry-email', { preHandler: requireAdministrator }, async (request, reply) => {
+  app.post('/notifications/:id/retry-email', { preHandler: requirePermission('settings:manage') }, async (request, reply) => {
     const { id } = notificationParams.parse(request.params);
     const result = await sql.begin(async (transaction) => {
       const rows = await transaction<Array<{ email_status: string }>>`

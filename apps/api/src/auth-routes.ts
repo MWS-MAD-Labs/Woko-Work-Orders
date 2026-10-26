@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
-import { roles, type Role } from '@woko/domain';
+import { roles, rolesCan, type Role } from '@woko/domain';
 import { CodeChallengeMethod } from 'google-auth-library';
 import { z } from 'zod';
-import { authenticate, oauthClient, randomToken, requireAdministrator, safeHashEquals, sessionCookieName, sessionCookieOptions, sessionDurationHours, sha256 } from './auth.js';
+import { authenticate, oauthClient, randomToken, requirePermission, safeHashEquals, sessionCookieName, sessionCookieOptions, sessionDurationHours, sha256 } from './auth.js';
 import { config } from './config.js';
 import { sql } from './database/client.js';
 
@@ -143,7 +143,7 @@ export async function authRoutes(app: FastifyInstance) {
     return { data: { loggedOut: true } };
   });
 
-  app.get('/admin/users', { preHandler: [authenticate, requireAdministrator] }, async () => {
+  app.get('/admin/users', { preHandler: [authenticate, requirePermission('users:manage')] }, async () => {
     const users = await sql`
       select u.id, u.email::text, u.full_name, u.active, u.google_subject_id is not null as identity_linked,
         u.last_login_at::text, u.created_at::text,
@@ -154,7 +154,7 @@ export async function authRoutes(app: FastifyInstance) {
     return { data: users };
   });
 
-  app.post('/admin/users', { preHandler: [authenticate, requireAdministrator] }, async (request, reply) => {
+  app.post('/admin/users', { preHandler: [authenticate, requirePermission('users:manage')] }, async (request, reply) => {
     const input = z.object({
       email: z.string().email().transform((value) => value.toLowerCase()),
       fullName: z.string().trim().min(2).max(160),
@@ -184,7 +184,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.code(201).send({ data: result });
   });
 
-  app.post('/admin/users/:id/resend-invitation', { preHandler: [authenticate, requireAdministrator] }, async (request, reply) => {
+  app.post('/admin/users/:id/resend-invitation', { preHandler: [authenticate, requirePermission('users:manage')] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const result = await sql.begin(async (transaction) => {
       const userRows = await transaction<Array<{ email: string; active: boolean; last_login_at: string | null }>>`
@@ -213,10 +213,10 @@ export async function authRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.patch('/admin/users/:id', { preHandler: [authenticate, requireAdministrator] }, async (request, reply) => {
+  app.patch('/admin/users/:id', { preHandler: [authenticate, requirePermission('users:manage')] }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ active: z.boolean(), roles: z.array(z.enum(roles)).min(1) }).parse(request.body);
-    if (id === request.currentUser.id && (!input.active || !input.roles.includes('ADMINISTRATOR'))) return reply.code(422).send({ error: { code: 'SELF_LOCKOUT_NOT_ALLOWED', message: 'You cannot deactivate yourself or remove your own administrator role.', requestId: request.id } });
+    if (id === request.currentUser.id && (!input.active || !rolesCan(input.roles, 'users:manage'))) return reply.code(422).send({ error: { code: 'SELF_LOCKOUT_NOT_ALLOWED', message: 'You cannot deactivate yourself or remove your own administrator role.', requestId: request.id } });
     const result = await sql.begin(async (transaction) => {
       const userRows = await transaction<Array<{ active: boolean }>>`select active from users where id = ${id} for update`;
       if (!userRows[0]) return { error: 'NOT_FOUND' } as const;

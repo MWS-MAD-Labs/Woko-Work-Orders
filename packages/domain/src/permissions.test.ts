@@ -7,6 +7,7 @@ describe('permissions', () => {
     expect(permissionsForRoles(['ADMINISTRATOR'])).toEqual(permissions.filter((p) => !['work-order:be-pic', 'work-order:be-worker', 'work-order:be-overseer', 'work-list:be-worker'].includes(p)));
     expect(permissionsForRoles(['FACILITIES_MANAGER'])).not.toContain('work-order:delete');
     expect(permissionsForRoles(['FACILITIES_MANAGER'])).not.toContain('users:manage');
+    expect(permissionsForRoles(['FACILITIES_MANAGER'])).not.toContain('settings:manage');
     expect(permissionsForRoles(['PERSON_IN_CHARGE'])).toEqual(['work-order:create', 'work-order:be-pic']);
     expect(permissionsForRoles(['WORKER'])).toEqual(['work-order:be-worker', 'work-list:be-worker']);
     expect(permissionsForRoles(['OVERSEER'])).toEqual(['work-order:be-overseer']);

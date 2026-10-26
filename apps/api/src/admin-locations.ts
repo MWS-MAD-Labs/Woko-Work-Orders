@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, requireAdministrator } from './auth.js';
+import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
 const nameSchema = z.string().trim().min(1).max(160);
@@ -20,7 +20,7 @@ const locationConfigurationSchema = z.object({
 
 export async function adminLocationRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.addHook('preHandler', requireAdministrator);
+  app.addHook('preHandler', requirePermission('settings:manage'));
 
   app.get('/admin/locations', async () => {
     const [campuses, buildings, options] = await Promise.all([

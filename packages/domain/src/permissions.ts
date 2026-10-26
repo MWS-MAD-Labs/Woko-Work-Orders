@@ -25,11 +25,10 @@ const managerPermissions = [
   'work-order:be-reviewer',
   'work-list:manage',
   'facilities:manage',
-  'settings:manage',
 ] as const satisfies readonly Permission[];
 
 export const rolePermissions: Record<Role, readonly Permission[]> = {
-  ADMINISTRATOR: [...managerPermissions, 'work-order:delete', 'users:manage'],
+  ADMINISTRATOR: [...managerPermissions, 'work-order:delete', 'settings:manage', 'users:manage'],
   FACILITIES_MANAGER: managerPermissions,
   PERSON_IN_CHARGE: ['work-order:create', 'work-order:be-pic'],
   WORKER: ['work-order:be-worker', 'work-list:be-worker'],
