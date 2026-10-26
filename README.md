@@ -104,7 +104,7 @@ With `AUTH_MODE=google`, register `http://localhost:5173/api/v1/auth/callback` a
 
 ### Local troubleshooting
 
-- **A port is already in use.** Change `PORT` and `VITE_API_URL` for the API, `POSTGRES_PORT` and `DATABASE_URL` for PostgreSQL, and start the web app with `npm run dev -w @woko/web -- --port 5174` (then set `WEB_ORIGIN` to match).
+- **A port is already in use.** Change `PORT` for the API (the Vite proxy follows it), `POSTGRES_PORT` and `DATABASE_URL` for PostgreSQL, and start the web app with `npm run dev -w @woko/web -- --port 5174` (then set `WEB_ORIGIN` to match). Vite reads the `.env` in the repo root, so restart it after changing `PORT`.
 - **`EMFILE: too many open files, watch ...` when starting Vite.** The machine ran out of inotify instances, usually because many dev servers are running. Stop some, or raise the limit: `sudo sysctl fs.inotify.max_user_instances=1024` (add `fs.inotify.max_user_instances=1024` to `/etc/sysctl.d/99-inotify.conf` to keep it after a reboot).
 - **The API exits with a `ZodError` about a `GOOGLE_*` key.** An empty value such as `GOOGLE_OAUTH_CLIENT_ID=` is rejected. Remove or comment out the key.
 

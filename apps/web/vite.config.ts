@@ -1,9 +1,15 @@
-import { defineConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// The one .env lives in the repo root, so Vite reads it from there and proxies /api to the API's PORT.
+const rootDir = fileURLToPath(new URL('../..', import.meta.url));
+const env = loadEnv('development', rootDir, '');
+
 export default defineConfig({
-  server: { proxy: { '/api': 'http://localhost:3001' } },
+  envDir: rootDir,
+  server: { proxy: { '/api': `http://localhost:${env.PORT || 3001}` } },
   plugins: [
     react(),
     VitePWA({
