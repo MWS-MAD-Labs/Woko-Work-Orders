@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Check, Mail, Plus, ShieldCheck, X } from 'lucide-react';
-import { roles, type Role } from '@woko/domain';
+import { rolePermissions, roles, type Role } from '@woko/domain';
 import { api } from './api';
 import type { Locale } from './i18n';
 import type { AdminUser } from './types';
@@ -12,7 +12,7 @@ const roleLabels: Record<Locale, Record<Role, string>> = {
 
 function RoleChecks({ selected, locale, onChange }: { selected: Role[]; locale: Locale; onChange: (roles: Role[]) => void }) {
   const id = locale === 'id';
-  return <div className="role-checks">{roles.map((role) => <label key={role} title={role === 'WORKER' ? id ? 'Dapat ditugaskan ke pekerjaan internal; tidak memberikan wewenang sebagai PIC atau manajer.' : 'Eligible for assignment to internal work orders; does not grant PIC or manager authority.' : undefined}><input type="checkbox" checked={selected.includes(role)} onChange={(event) => onChange(event.target.checked ? [...selected, role] : selected.filter((item) => item !== role))} /> {roleLabels[locale][role]}</label>)}</div>;
+  return <div className="role-checks">{roles.map((role) => <label key={role} title={`${role === 'WORKER' ? id ? 'Dapat ditugaskan ke pekerjaan internal; tidak memberikan wewenang sebagai PIC atau manajer. ' : 'Eligible for assignment to internal work orders; does not grant PIC or manager authority. ' : ''}${id ? 'Izin' : 'Permissions'}: ${rolePermissions[role].join(', ')}`}><input type="checkbox" checked={selected.includes(role)} onChange={(event) => onChange(event.target.checked ? [...selected, role] : selected.filter((item) => item !== role))} /> {roleLabels[locale][role]}</label>)}</div>;
 }
 
 export function AdminUsers({ locale, onClose, onChanged }: { locale: Locale; onClose: () => void; onChanged: () => Promise<void> | void }) {

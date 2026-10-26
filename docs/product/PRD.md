@@ -52,7 +52,7 @@ Woko centralizes these answers while retaining Google Workspace as the organizat
 | Worker | Assist a PIC on internal work, post progress evidence while work is in progress, and participate in discussion without transition or completion authority |
 | Overseer | Follow relevant work and participate in progress discussions without owning execution or approval |
 
-A person may hold multiple roles. Access remains restricted to active internal users authenticated through the configured Google Workspace domain.
+Roles are bundles of permissions (see `packages/domain/src/permissions.ts`); the application checks permissions, not role names. A person may hold multiple roles. Access remains restricted to active internal users authenticated through the configured Google Workspace domain.
 
 ## 6. Core workflows
 

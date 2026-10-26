@@ -3,6 +3,7 @@ import { ClipboardList, MapPin, Plus, Save, Trash2, Users, X } from 'lucide-reac
 import { api } from './api';
 import { displayLocationType, type Locale } from './i18n';
 import type { LocationOption, ReferenceData, WorkListTemplate } from './types';
+import { rolesHave } from './permissions';
 
 const createBlankTemplate = (): WorkListTemplate => ({
   id: '',
@@ -46,7 +47,7 @@ export function WorkListTemplateForm({ references, locale, onClose }: { referenc
   const [saving, setSaving] = useState(false);
   const [locationBuildingId, setLocationBuildingId] = useState(references.buildings[0]?.id ?? '');
   const [locationBranchId, setLocationBranchId] = useState('');
-  const workers = references.users.filter((user) => user.roles.includes('WORKER'));
+  const workers = references.users.filter((user) => rolesHave(user.roles, 'work-list:be-worker'));
 
   const locations = useMemo(() => references.locationOptions.map((location) => ({
     ...location,

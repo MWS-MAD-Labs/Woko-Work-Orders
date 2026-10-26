@@ -73,6 +73,8 @@ Same-origin production routing is important because authenticated mutations enfo
 
 Woko uses the Google authorization-code flow with PKCE, nonce, and state validation. The API verifies identity claims and the allowed hosted domain before creating an opaque session. Only a hash of the session token is stored in PostgreSQL; the raw token is held in an HTTP-only cookie.
 
+Authorization asks for permissions, not role names. A role is a bundle of permissions defined in one table (`packages/domain/src/permissions.ts`), the session carries the user's permissions (`/me` returns `permissions` next to `roles`), and the API and web check them with `can(...)`. Database queries that filter by role use `rolesWithPermission(...)`. Work-order participation (assigned PIC, worker, reviewer) stays contextual and is checked on top of the permission.
+
 Authorization combines global roles and work-order participation:
 
 - Administrators manage users and organization settings.

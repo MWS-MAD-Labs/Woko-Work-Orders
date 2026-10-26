@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, Check, ExternalLink, FileUp, FolderSearch, Rotat
 import { blockerCategories, evidenceRules, evidenceTypes, priorities, proposalDecisions, type EvidenceType, type ProposalDecision, type TaskCondition, type WorkflowStage } from '@woko/domain';
 import { api, createIdempotencyKey, uploadWithProgress } from './api';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
+import { rolesHave, userCan } from './permissions';
 import { storedLocale, translator, type Locale } from './i18n';
 import { getProjectProgress } from './work-order-progress';
 import { DriveBrowser, type DriveBrowserItem } from './DriveBrowser';
@@ -119,10 +120,10 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
     reviewerId: '', workType: workTypeOptions[0]?.code ?? 'INTERNAL', dueDate: '', plannedStartDate: '', procurementRequired: '', procurementRequirementNote: '',
     executionWindow: executionWindowOptions[0]?.code ?? '', executionWindowNote: '', planSummary: '',
   });
-  const picUsers = references.users.filter((user) => user.roles.includes('PERSON_IN_CHARGE'));
-  const workerUsers = references.users.filter((user) => user.roles.includes('WORKER'));
-  const reviewerUsers = references.users.filter((user) => user.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER'));
-  const overseerUsers = references.users.filter((user) => user.roles.includes('OVERSEER'));
+  const picUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-pic'));
+  const workerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-worker'));
+  const reviewerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-reviewer'));
+  const overseerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-overseer'));
   const currentPic = picUsers.find((user) => user.id === currentUser.id);
   const [assigneeIds, setAssigneeIds] = useState<string[]>(currentPic ? [currentPic.id] : picUsers[0] ? [picUsers[0].id] : []);
   const [workerIds, setWorkerIds] = useState<string[]>([]);
@@ -269,10 +270,10 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
 
 export function ParticipantsActionForm({ order, references, locale, onClose, onChanged }: { order: WorkOrder; references: ReferenceData; locale: Locale; onClose: () => void; onChanged: () => Promise<void> | void }) {
   const t = translator(locale);
-  const picUsers = references.users.filter((user) => user.roles.includes('PERSON_IN_CHARGE'));
-  const workerUsers = references.users.filter((user) => user.roles.includes('WORKER'));
-  const reviewerUsers = references.users.filter((user) => user.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER'));
-  const overseerUsers = references.users.filter((user) => user.roles.includes('OVERSEER'));
+  const picUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-pic'));
+  const workerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-worker'));
+  const reviewerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-reviewer'));
+  const overseerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-overseer'));
   const [assigneeIds, setAssigneeIds] = useState(order.assignees.map((person) => person.id));
   const [workerIds, setWorkerIds] = useState(order.workers.map((person) => person.id));
   const [reviewerId, setReviewerId] = useState(order.reviewer_id ?? '');
@@ -410,7 +411,7 @@ export function EvidencePanel({ order, currentUser, onChanged }: Pick<WorkflowFo
   const copy = locale === 'id'
     ? { title: 'Bukti berkas', intro: 'Catatan awal, progres, proposal, dan penyelesaian disimpan Woko dalam folder Drive pribadi untuk pekerjaan ini.', retryFailed: 'Gagal mencoba kembali penyiapan folder.', uploadFailed: 'Gagal mengunggah berkas.', linkFailed: 'Berkas Drive tidak dapat ditautkan.', confirmLink: (name: string) => `Tautkan “${name}” ke pekerjaan ini?\n\nWoko akan memberikan akses edit kepada semua orang di kartu pekerjaan ini dan membuat pintasan di folder proyek pribadi. Berkas asli tidak akan dipindahkan atau disalin.`, retry: 'Coba lagi', evidenceType: 'Jenis bukti', chooseFile: 'Pilih berkas', uploadFile: 'Pilih berkas bukti untuk diunggah', upload: 'Unggah', uploadProgress: (value: number) => `Progres unggahan ${value}%`, chooseDrive: 'Pilih dari Google Drive', driveHint: 'Bagikan dengan layanan Drive Woko dan buat pintasan proyek pribadi', limits: `Berkas asli tetap di tempatnya. Semua orang di kartu pekerjaan mendapat akses edit; layanan Drive Woko menjaga daftar editor tersebut dan menyimpan pintasan di folder proyek pribadi. Maksimum ${evidenceRules.maxFilesPerType} berkas per jenis bukti dan ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per berkas yang diunggah.`, noEvidence: 'Belum ada bukti berkas.', uploaded: 'Diunggah', shortcut: 'Pintasan Drive', moved: 'Dipindahkan dari Drive Saya', copied: 'Disalin dari Drive' }
     : { title: 'File evidence', intro: 'Initial, progress, proposal, and completion records are stored by Woko in a private work-order Drive folder.', retryFailed: 'Provisioning retry failed.', uploadFailed: 'Upload failed.', linkFailed: 'Drive file could not be linked.', confirmLink: (name: string) => `Link “${name}” to this project?\n\nWoko will share edit access with everyone on this work card and create a shortcut in the private project folder. The original file will not be moved or copied.`, retry: 'Retry', evidenceType: 'Evidence type', chooseFile: 'Choose file', uploadFile: 'Choose an evidence file to upload', upload: 'Upload', uploadProgress: (value: number) => `Upload ${value}%`, chooseDrive: 'Choose from Google Drive', driveHint: 'Share with the Woko Drive worker and create a private project shortcut', limits: `Your original file stays in place. Everyone on the work card receives edit access; the Drive worker maintains that editor list and stores a shortcut in the private project folder. Maximum ${evidenceRules.maxFilesPerType} files per evidence type and ${Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024)} MB per uploaded file.`, noEvidence: 'No file evidence added yet.', uploaded: 'Uploaded', shortcut: 'Drive shortcut', moved: 'Transferred from My Drive', copied: 'Copied from Drive' };
-  const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const isManager = userCan(currentUser, 'work-order:manage');
   const canUpload = false;
   const [evidenceType, setEvidenceType] = useState<EvidenceType>('PROGRESS');
   const [file, setFile] = useState<File | null>(null);
@@ -468,7 +469,7 @@ export function InternalProcurementPanel({ order, currentUser, onChanged }: Pick
     ? { title: 'Pengadaan internal', intro: 'Woko mencatat pengajuan ke proses Keuangan eksternal beserta keputusan yang disampaikan.', actionFailed: 'Tindakan pengadaan gagal.', uploadFailed: 'Gagal mengunggah proposal.', linkFailed: 'Proposal dari Drive tidak dapat ditautkan.', submittedBy: 'Diajukan oleh', financeDecision: 'Keputusan Keuangan:', whyRequired: 'Mengapa pengadaan diperlukan?', markRequired: 'Tandai perlu pengadaan', uploadProposal: 'Unggah proposal pengadaan', chooseProposalFile: 'Pilih berkas proposal pengadaan untuk diunggah', upload: 'Unggah', chooseDrive: 'Pilih dari Google Drive', confirmSubmitted: 'Saya mengonfirmasi bahwa proposal ini telah diajukan melalui proses Keuangan eksternal.', recordSubmitted: 'Catat proposal telah diajukan', revisedReason: 'Alasan proposal direvisi', startRevision: 'Mulai revisi proposal', updateNotePrompt: 'Perbarui catatan pengadaan', updateNote: 'Perbarui catatan', clearReason: 'Alasan pengadaan tidak lagi diperlukan', markNotRequired: 'Tandai tidak lagi diperlukan', decisionNote: (decision: string) => `Catatan keputusan untuk ${decision}`, driveTitle: 'Pilih proposal pengadaan' }
     : { title: 'Internal procurement', intro: 'Woko records submission to the external Finance process and its communicated decision.', actionFailed: 'Procurement action failed.', uploadFailed: 'Proposal upload failed.', linkFailed: 'Drive proposal could not be linked.', submittedBy: 'Submitted by', financeDecision: 'Finance decision:', whyRequired: 'Why is procurement required?', markRequired: 'Mark procurement required', uploadProposal: 'Upload procurement proposal', chooseProposalFile: 'Choose a procurement proposal file to upload', upload: 'Upload', chooseDrive: 'Choose from Google Drive', confirmSubmitted: 'I confirm that this proposal has been submitted through the external Finance process.', recordSubmitted: 'Record proposal submitted', revisedReason: 'Reason for the revised proposal', startRevision: 'Start revised proposal', updateNotePrompt: 'Update procurement note', updateNote: 'Update note', clearReason: 'Reason procurement is no longer required', markNotRequired: 'Mark no longer required', decisionNote: (decision: string) => `Decision note for ${decision}`, driveTitle: 'Choose procurement proposal' };
   const procurement = order.procurement;
-  const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const isManager = userCan(currentUser, 'work-order:manage');
   const isPic = order.assignees.some((person) => person.id === currentUser.id);
   const canManage = isManager || isPic;
   const [file, setFile] = useState<File | null>(null);
@@ -533,7 +534,7 @@ export function WorkflowActionForm({ order, currentUser, locale = 'en', onClose,
   const copy = locale === 'id'
     ? { reopenCompleted: 'Buka kembali pekerjaan selesai', finalCheck: 'Selesaikan pemeriksaan akhir', updateProgress: 'Perbarui progres proyek', progressIntro: 'Catat pembaruan yang sedang berjalan atau tandai pekerjaan sebagai selesai untuk dikirimkan ke pemeriksaan.', updateIntro: 'Tambahkan pembaruan singkat dan jelas. Woko akan memindahkan proyek ke tahap berikutnya yang dapat dilacak.', progressUpdate: 'Pembaruan progres', workCompleted: 'Pekerjaan selesai', approve: 'Setujui', reject: 'Tolak', reopen: 'Buka kembali', startDate: 'Kapan pekerjaan dimulai?', reason: 'Alasan', finalCheckNote: 'Catatan pemeriksaan akhir', completionNote: 'Catatan penyelesaian', shortUpdate: 'Pembaruan singkat', progressEvidence: 'Bukti progres', saving: 'Menyimpan...', rejectToProgress: 'Tolak kembali ke Dikerjakan', reopenWork: 'Buka kembali pekerjaan', saveProgress: 'Simpan pembaruan progres', markCompleted: 'Tandai pekerjaan selesai', approveCompletion: 'Setujui penyelesaian', confirmProgress: 'Konfirmasi progres' }
     : { reopenCompleted: 'Reopen completed work', finalCheck: 'Complete the final check', updateProgress: 'Update project progress', progressIntro: 'Record an ongoing update or mark the work as completed and send it for review.', updateIntro: 'Add a short, clear update. Woko will move the project to its next trackable phase.', progressUpdate: 'Progress update', workCompleted: 'Work completed', approve: 'Approve', reject: 'Reject', reopen: 'Reopen', startDate: 'When will work start?', reason: 'Reason', finalCheckNote: 'Final check note', completionNote: 'Completion note', shortUpdate: 'Short update', progressEvidence: 'Progress evidence', saving: 'Saving...', rejectToProgress: 'Reject back to In Progress', reopenWork: 'Reopen work order', saveProgress: 'Save progress update', markCompleted: 'Mark work completed', approveCompletion: 'Approve completion', confirmProgress: 'Confirm progress' };
-  const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const isManager = userCan(currentUser, 'work-order:manage');
   const [action, setAction] = useState<'forward' | 'reject' | 'reopen'>(initialAction ?? (order.status === 'COMPLETED' ? 'reopen' : 'forward'));
   const [progressMode, setProgressMode] = useState<'mid' | 'complete'>('mid');
   const [note, setNote] = useState('');

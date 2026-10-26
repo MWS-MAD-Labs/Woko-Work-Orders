@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { AlertTriangle, ArrowRight, Camera, Check, CheckCircle2, ChevronDown, ClipboardList, Clock3, ExternalLink, MapPin, X } from 'lucide-react';
 import { api, apiResourceUrl, apiWithMeta, ApiError, uploadWithProgress } from './api';
 import type { CurrentUser, WorkListItemStatus, WorkListOccurrence } from './types';
+import { userCan } from './permissions';
 import type { Locale } from './i18n';
 
 const closedStatuses = new Set(['OVERDUE', 'MISSED', 'SUBMITTED', 'SUBMITTED_LATE']);
@@ -107,7 +108,7 @@ export function WorkListsView({ currentUser, locale = 'en' }: { currentUser: Cur
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const listRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
-  const manager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const manager = userCan(currentUser, 'work-list:manage');
   const groups = useMemo(() => {
     const grouped = new Map<string, { key: string; title: string; recurrence: WorkListOccurrence['recurrence']; periodDate: string; dueAt: string; workers: NonNullable<WorkListOccurrence['workers']>; lists: WorkListOccurrence[] }>();
     for (const list of lists) {

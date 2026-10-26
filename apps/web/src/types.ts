@@ -1,4 +1,4 @@
-import type { AttachmentContext, EvidenceType, InternalProcurementStatus, Priority, Role, WorkflowStage, WorkType } from '@woko/domain';
+import type { AttachmentContext, EvidenceType, InternalProcurementStatus, Permission, Priority, Role, WorkflowStage, WorkType } from '@woko/domain';
 
 export interface CurrentUser {
   id: string;
@@ -6,6 +6,7 @@ export interface CurrentUser {
   fullName: string;
   profilePhotoUrl?: string;
   roles: Role[];
+  permissions?: Permission[];
   preferredLocale: 'id' | 'en';
   sessionExpiresAt: string;
 }
