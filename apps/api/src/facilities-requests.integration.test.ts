@@ -10,6 +10,8 @@ if (!integrationDatabaseUrl || new URL(integrationDatabaseUrl).pathname !== '/wo
 const managerId = '30000000-0000-4000-8000-000000000001';
 const requesterId = '30000000-0000-4000-8000-000000000002';
 const unrelatedAdminId = '30000000-0000-4000-8000-000000000003';
+const secondManagerId = '30000000-0000-4000-8000-000000000004';
+const nonManagerId = '30000000-0000-4000-8000-000000000005';
 const app = await buildApp();
 
 type ApiBody = { data?: any; error?: { code: string } };
@@ -51,11 +53,12 @@ function futureBooking(assetId: string, quantity = 1) {
 
 beforeEach(async () => {
   await sql`truncate facilities_audit_events, facilities_request_items, facilities_requests, facilities_assets, work_order_settings cascade`;
-  await sql`delete from user_roles where user_id = any(${[managerId, requesterId, unrelatedAdminId]}::uuid[])`;
+  await sql`delete from user_roles where user_id = any(${[managerId, requesterId, unrelatedAdminId, secondManagerId, nonManagerId]}::uuid[])`;
   await createUser(managerId, 'facilities-test-manager', 'manager@millennia21.id', 'Assigned Manager', 'FACILITIES_MANAGER');
   await createUser(requesterId, 'facilities-test-requester', 'requester@millennia21.id', 'Requester', 'PERSON_IN_CHARGE');
   await createUser(unrelatedAdminId, 'facilities-test-admin', 'admin@millennia21.id', 'Unrelated Admin', 'ADMINISTRATOR');
-  await sql`insert into work_order_settings (id, default_facilities_manager_id) values (true, ${managerId})`;
+  await createUser(secondManagerId, 'facilities-test-manager-two', 'manager-two@millennia21.id', 'Second Manager', 'FACILITIES_MANAGER');
+  await createUser(nonManagerId, 'facilities-test-worker', 'worker@millennia21.id', 'Worker', 'PERSON_IN_CHARGE');
 });
 
 afterAll(async () => {
@@ -64,36 +67,15 @@ afterAll(async () => {
 });
 
 describe('facilities route integration', () => {
-  it('lets administrators configure an active eligible default manager and assigns subsequent bookings', async () => {
+  it('creates bookings with no work-order settings and retains deterministic routing metadata', async () => {
     const assetId = await createAsset();
-    const before = await app.inject({ method: 'GET', url: '/api/v1/facilities/default-manager', headers: asUser(managerId) });
-    expect(before.statusCode).toBe(200);
-    expect((await body(before)).data.defaultManagerId).toBe(managerId);
-
-    const configured = await app.inject({ method: 'PUT', url: '/api/v1/facilities/default-manager', headers: asUser(unrelatedAdminId), payload: { userId: managerId } });
-    expect(configured.statusCode).toBe(200);
-    expect((await body(configured)).data.defaultManagerId).toBe(managerId);
-
     const created = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
     expect(created.statusCode).toBe(201);
     const assigned = await sql<Array<{ approver_id: string }>>`select approver_id from facilities_requests where id = ${(await body(created)).data.id}`;
     expect(assigned[0]?.approver_id).toBe(managerId);
   });
 
-  it('rejects non-administrator, malformed, inactive, and ineligible default manager configuration', async () => {
-    const forbidden = await app.inject({ method: 'PUT', url: '/api/v1/facilities/default-manager', headers: asUser(managerId), payload: { userId: managerId } });
-    expect(forbidden.statusCode).toBe(403);
-    const invalid = await app.inject({ method: 'PUT', url: '/api/v1/facilities/default-manager', headers: asUser(unrelatedAdminId), payload: { userId: 'not-a-uuid' } });
-    expect(invalid.statusCode).toBe(400);
-    await sql`update users set active = false where id = ${managerId}`;
-    const inactive = await app.inject({ method: 'PUT', url: '/api/v1/facilities/default-manager', headers: asUser(unrelatedAdminId), payload: { userId: managerId } });
-    expect(inactive.statusCode).toBe(422);
-    await sql`update users set active = true where id = ${managerId}`;
-    const ineligible = await app.inject({ method: 'PUT', url: '/api/v1/facilities/default-manager', headers: asUser(unrelatedAdminId), payload: { userId: requesterId } });
-    expect(ineligible.statusCode).toBe(422);
-  });
-
-  it('uses the configured default manager and atomically prevents concurrent overbooking', async () => {
+  it('atomically prevents concurrent overbooking without facilities configuration', async () => {
     const assetId = await createAsset(1);
     const responses = await Promise.all([
       app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) }),
@@ -117,7 +99,7 @@ describe('facilities route integration', () => {
     expect(second.statusCode).toBe(201);
   });
 
-  it('limits requesters to their own requests and limits decisions to the assigned manager', async () => {
+  it('lets every active global manager or administrator decide while rejecting non-managers and inactive authentication', async () => {
     const assetId = await createAsset();
     const created = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
     const requestId = (await body(created)).data.id as string;
@@ -127,25 +109,23 @@ describe('facilities route integration', () => {
     const unrelatedList = await app.inject({ method: 'GET', url: '/api/v1/facilities/requests', headers: asUser(unrelatedAdminId) });
     expect((await body(unrelatedList)).data).toHaveLength(1);
 
-    const forbidden = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${requestId}/decision`, headers: asUser(unrelatedAdminId), payload: { decision: 'APPROVED', note: 'I am not assigned' } });
+    const forbidden = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${requestId}/decision`, headers: asUser(nonManagerId), payload: { decision: 'APPROVED', note: 'Not a manager' } });
     expect(forbidden.statusCode).toBe(403);
-    expect((await body(forbidden)).error?.code).toBe('DECISION_FORBIDDEN');
-
-    const approved = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${requestId}/decision`, headers: asUser(managerId), payload: { decision: 'APPROVED', note: 'Approved' } });
+    const approved = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${requestId}/decision`, headers: asUser(secondManagerId), payload: { decision: 'APPROVED', note: 'Approved by another global manager' } });
     expect(approved.statusCode).toBe(200);
     expect((await body(approved)).data.status).toBe('APPROVED');
+    await sql`update users set active = false where id = ${managerId}`;
+    const inactive = await app.inject({ method: 'GET', url: '/api/v1/facilities/requests', headers: asUser(managerId) });
+    expect(inactive.statusCode).toBe(401);
   });
 
-  it('rejects a missing, inactive, or non-manager default manager', async () => {
+  it('allows an administrator to decide even when routing metadata user no longer has a manager role', async () => {
     const assetId = await createAsset();
-    await sql`delete from work_order_settings`;
-    const missing = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
-    expect((await body(missing)).error?.code).toBe('FACILITIES_MANAGER_CONFIGURATION_INVALID');
-
-    await sql`insert into work_order_settings (id, default_facilities_manager_id) values (true, ${managerId})`;
-    await sql`update users set active = false where id = ${managerId}`;
-    const inactive = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
-    expect((await body(inactive)).error?.code).toBe('FACILITIES_MANAGER_CONFIGURATION_INVALID');
+    const created = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
+    const requestId = (await body(created)).data.id as string;
+    await sql`delete from user_roles where user_id = ${managerId} and role = 'FACILITIES_MANAGER'`;
+    const approved = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${requestId}/decision`, headers: asUser(unrelatedAdminId), payload: { decision: 'APPROVED', note: 'Global administrator review' } });
+    expect(approved.statusCode).toBe(200);
   });
 
   it('records cancellation in the immutable audit history', async () => {
