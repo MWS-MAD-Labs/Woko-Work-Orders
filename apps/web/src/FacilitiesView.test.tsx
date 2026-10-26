@@ -32,7 +32,6 @@ function mockFacilityApi(requests: unknown[] = []) {
   vi.mocked(api).mockImplementation((path: string) => {
     if (path === '/facilities/assets') return Promise.resolve(assets);
     if (path === '/facilities/requests') return Promise.resolve(requests);
-    if (path === '/facilities/default-manager') return Promise.resolve({ defaultManagerId: null, defaultManagerName: null });
     return Promise.resolve({});
   });
 }
@@ -93,26 +92,8 @@ describe('FacilitiesView', () => {
     expect(assetCalls.at(-1)).toEqual(['/facilities/assets']);
   });
 
-  it('lets an administrator configure the default manager from inventory', async () => {
-    vi.mocked(api).mockImplementation((path: string, init?: RequestInit) => {
-      if (path === '/facilities/assets') return Promise.resolve(assets);
-      if (path === '/facilities/requests') return Promise.resolve([]);
-      if (path === '/facilities/default-manager' && init?.method === 'PUT') return Promise.resolve({ defaultManagerId: 'manager-2' });
-      if (path === '/facilities/default-manager') return Promise.resolve({ defaultManagerId: 'manager-1', defaultManagerName: 'Facilities Manager' });
-      return Promise.resolve({});
-    });
-    render(<FacilitiesView currentUser={administrator} locale="en" />);
-    await screen.findByText('Projector');
-    fireEvent.click(screen.getByRole('button', { name: 'Manage inventory' }));
-    expect(await screen.findByText('Default manager: Facilities Manager')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Default facilities manager ID'), { target: { value: 'manager-2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save default manager' }));
-    await waitFor(() => expect(vi.mocked(api).mock.calls.find(([path, init]) => path === '/facilities/default-manager' && init?.method === 'PUT')).toBeTruthy());
-    const call = vi.mocked(api).mock.calls.find(([path, init]) => path === '/facilities/default-manager' && init?.method === 'PUT')!;
-    expect(JSON.parse(call[1]!.body as string)).toEqual({ userId: 'manager-2' });
-  });
 
-  it('lets only the assigned manager decide, inspect a return, and resolve return issues', async () => {
+  it('lets any global manager decide, inspect a return, and resolve return issues', async () => {
     let requests = [request()];
     vi.mocked(api).mockImplementation((path: string, init?: RequestInit) => {
       if (path === '/facilities/assets') return Promise.resolve(assets);
@@ -122,7 +103,7 @@ describe('FacilitiesView', () => {
       if (path.endsWith('/resolve')) return Promise.resolve({ resolved: 1 });
       return Promise.resolve({});
     });
-    render(<FacilitiesView currentUser={manager} locale="en" />);
+    render(<FacilitiesView currentUser={otherManager} locale="en" />);
     await screen.findByText('Workshop');
     fireEvent.click(screen.getByRole('button', { name: 'Decision' }));
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Approved for use' } });
@@ -143,11 +124,11 @@ describe('FacilitiesView', () => {
     expect(JSON.parse(postCall('/facilities/requests/request-1/resolve')![1]!.body as string)).toEqual({ note: 'Replacement ordered' });
   });
 
-  it('does not expose decision, return, or resolution controls to an unassigned manager', async () => {
+  it('exposes review controls to an unassigned global manager', async () => {
     mockFacilityApi([request({ status: 'RETURNED_WITH_ISSUES', ends_at: '2026-10-23T12:00:00.000Z', items: [{ asset_id: 'asset-1', asset_name: 'Projector', quantity: 1, returned_quantity: 0, condition: 'MISSING', issue_note: 'Not found' }] })]);
     render(<FacilitiesView currentUser={otherManager} locale="en" />);
     await screen.findByText('Workshop');
-    expect(screen.queryByRole('button', { name: /decision|verify return|resolve issues/i })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Resolve issues' })).toBeTruthy();
   });
 
   it('shows inspection state instead of closing an overdue approved booking', async () => {

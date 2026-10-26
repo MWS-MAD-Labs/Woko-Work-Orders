@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, requireAdministrator, requireManager } from './auth.js';
+import { authenticate, requireManager } from './auth.js';
 import { sql } from './database/client.js';
 
 const schoolTimeZone = 'Asia/Jakarta';
 const isoDateTime = z.string().datetime({ offset: true });
 const idSchema = z.object({ id: z.string().uuid() });
-const defaultManagerSchema = z.object({ userId: z.string().uuid() });
+
 const assetInputSchema = z.object({ name: z.string().trim().min(1).max(160), assetCode: z.string().trim().min(1).max(80), quantity: z.number().int().min(0).max(100000), active: z.boolean() });
 const requestSchema = z.object({ purpose: z.string().trim().min(3).max(1000), location: z.string().trim().min(1).max(300), startsAt: isoDateTime, endsAt: isoDateTime, items: z.array(z.object({ assetId: z.string().uuid(), quantity: z.number().int().positive().max(100000) })).min(1).max(100) }).superRefine((value, context) => {
   if (new Set(value.items.map((item) => item.assetId)).size !== value.items.length) context.addIssue({ code: 'custom', path: ['items'], message: 'Each asset may only be requested once.' });
@@ -57,18 +57,7 @@ const requestSelect = sql`
 export async function facilitiesRequestRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
   app.get('/facilities/assets', async () => ({ data: await sql`select id, name, asset_code, quantity, active from facilities_assets order by name` }));
-  app.get('/facilities/default-manager', { preHandler: requireManager }, async () => {
-    const rows = await sql<Array<{ default_manager_id: string | null; full_name: string | null }>>`select settings.default_facilities_manager_id as default_manager_id, users.full_name from work_order_settings settings left join users on users.id = settings.default_facilities_manager_id where settings.id = true`;
-    const manager = rows[0];
-    return { data: { defaultManagerId: manager?.default_manager_id ?? null, defaultManagerName: manager?.full_name ?? null } };
-  });
-  app.put('/facilities/default-manager', { preHandler: requireAdministrator }, async (request, reply) => {
-    const input = defaultManagerSchema.parse(request.body);
-    const eligible = await sql<Array<{ id: string }>>`select u.id from users u where u.id = ${input.userId} and u.active and exists (select 1 from user_roles role where role.user_id = u.id and role.role in ('ADMINISTRATOR', 'FACILITIES_MANAGER'))`;
-    if (!eligible[0]) return sendError(reply, request.id, 422, 'FACILITIES_MANAGER_CONFIGURATION_INVALID', 'The default Facilities Manager must be an active Administrator or Facilities Manager.');
-    const rows = await sql<Array<{ default_manager_id: string }>>`insert into work_order_settings (id, default_facilities_manager_id, updated_at) values (true, ${input.userId}, now()) on conflict (id) do update set default_facilities_manager_id = excluded.default_facilities_manager_id, updated_at = now() returning default_facilities_manager_id as default_manager_id`;
-    return { data: { defaultManagerId: rows[0]!.default_manager_id } };
-  });
+
   app.post('/facilities/assets', { preHandler: requireManager }, async (request, reply) => {
     const input = assetInputSchema.parse(request.body);
     try {
@@ -122,8 +111,8 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     const input = requestSchema.parse(request.body); const check = validateBookingTimes(input);
     if (!check.ok) return sendError(reply, request.id, 422, check.code, check.code === 'INVALID_BOOKING_TIME' ? 'Choose a future start and an end after it.' : 'Bookings may end no later than two calendar months from today.');
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const managers = await tx<Array<{ id: string }>>`select settings.default_facilities_manager_id id from work_order_settings settings join users u on u.id=settings.default_facilities_manager_id where settings.id=true and u.active and exists (select 1 from user_roles role where role.user_id=u.id and role.role in ('ADMINISTRATOR','FACILITIES_MANAGER')) for share`;
-      const manager = managers[0]; if (!manager) return { error: 'FACILITIES_MANAGER_CONFIGURATION_INVALID' };
+      const managers = await tx<Array<{ id: string }>>`select u.id from users u where u.active and exists (select 1 from user_roles role where role.user_id = u.id and role.role in ('ADMINISTRATOR', 'FACILITIES_MANAGER')) order by case when exists (select 1 from user_roles role where role.user_id = u.id and role.role = 'FACILITIES_MANAGER') then 0 else 1 end, u.id limit 1 for share`;
+      const manager = managers[0]; if (!manager) return { error: 'NO_ACTIVE_MANAGER' };
       const assets = await tx<Array<{ id: string; name: string; quantity: number }>>`select id,name,quantity from facilities_assets where id=any(${input.items.map((item) => item.assetId)}::uuid[]) and active=true order by id for update`;
       if (assets.length !== input.items.length) return { error: 'INVALID_ASSET' };
       for (const item of input.items) {
@@ -136,17 +125,17 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
       const row = created[0]!; for (const item of input.items) await tx`insert into facilities_request_items (request_id,asset_id,quantity) values (${row.id},${item.assetId},${item.quantity})`;
       await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${row.id},${request.currentUser.id},'FACILITIES_REQUEST_CREATED',${tx.json(input)},${request.id})`; return { id: row.id };
     });
-    if (hasError(result)) return sendError(reply, request.id, 422, result.error, result.error === 'FACILITIES_MANAGER_CONFIGURATION_INVALID' ? 'A default active Facilities Manager must be configured before requests can be submitted.' : result.error === 'INVALID_ASSET' ? 'Select active assets only.' : `${result.assetName!} is not available for the requested time.`);
+    if (hasError(result)) return sendError(reply, request.id, 422, result.error, result.error === 'NO_ACTIVE_MANAGER' ? 'An active Facilities Manager or Administrator is required before requests can be submitted.' : result.error === 'INVALID_ASSET' ? 'Select active assets only.' : `${result.assetName!} is not available for the requested time.`);
     return reply.code(201).send({ data: result });
   });
   app.post('/facilities/requests/:id/decision', { preHandler: requireManager }, async (request, reply) => {
     const { id } = idSchema.parse(request.params); const input = decisionSchema.parse(request.body);
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const rows = await tx<Array<{ status: string; approver_id: string; starts_at: string }>>`select status,approver_id,starts_at::text from facilities_requests where id=${id} for update`; const facilityRequest=rows[0];
-      if (!facilityRequest) return { error:'NOT_FOUND' }; if (facilityRequest.approver_id !== request.currentUser.id) return { error:'DECISION_FORBIDDEN' }; if (facilityRequest.status !== 'PENDING') return { error:'INVALID_REQUEST_STATE' }; if (input.decision === 'APPROVED' && new Date(facilityRequest.starts_at) <= new Date()) return { error:'BOOKING_EXPIRED' };
+      const rows = await tx<Array<{ status: string; starts_at: string }>>`select status,starts_at::text from facilities_requests where id=${id} for update`; const facilityRequest=rows[0];
+      if (!facilityRequest) return { error:'NOT_FOUND' }; if (facilityRequest.status !== 'PENDING') return { error:'INVALID_REQUEST_STATE' }; if (input.decision === 'APPROVED' && new Date(facilityRequest.starts_at) <= new Date()) return { error:'BOOKING_EXPIRED' };
       const status=input.decision === 'APPROVED' ? 'APPROVED' : 'REJECTED'; await tx`update facilities_requests set status=${status},decision_note=${input.note},decided_at=now(),updated_at=now() where id=${id}`; await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${id},${request.currentUser.id},'FACILITIES_REQUEST_DECIDED',${tx.json(input)},${request.id})`; return { status };
     });
-    if (hasError(result)) return sendError(reply,request.id,result.error === 'NOT_FOUND'?404:result.error === 'DECISION_FORBIDDEN'?403:422,result.error,result.error === 'DECISION_FORBIDDEN'?'Only the assigned Facilities Manager may make this decision.':result.error === 'BOOKING_EXPIRED'?'Expired bookings cannot be approved.':'This request cannot be decided now.'); return { data:result };
+    if (hasError(result)) return sendError(reply,request.id,result.error === 'NOT_FOUND'?404:422,result.error,result.error === 'BOOKING_EXPIRED'?'Expired bookings cannot be approved.':'This request cannot be decided now.'); return { data:result };
   });
   app.post('/facilities/requests/:id/cancel', async (request, reply) => {
     const { id } = idSchema.parse(request.params);
@@ -167,10 +156,10 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     const { id } = idSchema.parse(request.params);
     const input = returnSchema.parse(request.body);
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const rows = await tx<Array<{ status: string; approver_id: string; ends_at: string }>>`select status, approver_id, ends_at::text from facilities_requests where id = ${id} for update`;
+      const rows = await tx<Array<{ status: string; ends_at: string }>>`select status, ends_at::text from facilities_requests where id = ${id} for update`;
       const item = rows[0];
       if (!item) return { error: 'NOT_FOUND' };
-      if (item.approver_id !== request.currentUser.id) return { error: 'RETURN_FORBIDDEN' };
+
       if (item.status !== 'APPROVED' || new Date(item.ends_at) > new Date()) return { error: 'INVALID_REQUEST_STATE' };
       const booked = await tx<Array<{ asset_id: string; quantity: number }>>`select asset_id, quantity from facilities_request_items where request_id = ${id} for update`;
       if (booked.length !== input.items.length || input.items.some((returnItem) => {
@@ -183,8 +172,8 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
       await tx`insert into facilities_audit_events (request_id, user_id, event_type, new_data, correlation_id) values (${id}, ${request.currentUser.id}, 'FACILITIES_RETURN_INSPECTED', ${tx.json(input)}, ${request.id})`;
       return { status: hasIssues ? 'RETURNED_WITH_ISSUES' : 'RETURNED' };
     });
-    if (hasError(result)) return sendError(reply, request.id, result.error === 'NOT_FOUND' ? 404 : result.error === 'RETURN_FORBIDDEN' ? 403 : 422, result.error, result.error === 'RETURN_FORBIDDEN' ? 'Only the assigned Facilities Manager may inspect returns.' : 'Returns must include every booked asset after its booking ends; good returns require all units.');
+    if (hasError(result)) return sendError(reply, request.id, result.error === 'NOT_FOUND' ? 404 : 422, result.error, 'Returns must include every booked asset after its booking ends; good returns require all units.');
     return { data: result };
   });
-  app.post('/facilities/requests/:id/resolve', { preHandler: requireManager }, async (request,reply)=>{const {id}=idSchema.parse(request.params);const input=resolveSchema.parse(request.body);const result=await sql.begin(async(tx):Promise<RouteResult>=>{const rows=await tx<Array<{status:string;approver_id:string}>>`select status,approver_id from facilities_requests where id=${id} for update`;const item=rows[0];if(!item)return{error:'NOT_FOUND'};if(item.approver_id!==request.currentUser.id)return{error:'RESOLUTION_FORBIDDEN'};if(item.status!=='RETURNED')return{error:'INVALID_REQUEST_STATE'};const resolved=await tx`update facilities_request_items set issue_resolved_at=now(),issue_resolved_by=${request.currentUser.id},issue_resolution_note=${input.note} where request_id=${id} and return_condition in ('DAMAGED','MISSING') and issue_resolved_at is null`;if(!resolved.count)return{error:'NO_UNRESOLVED_ISSUES'};await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${id},${request.currentUser.id},'FACILITIES_RETURN_ISSUES_RESOLVED',${tx.json(input)},${request.id})`;return{resolved:resolved.count};});if(hasError(result))return sendError(reply,request.id,result.error==='NOT_FOUND'?404:result.error==='RESOLUTION_FORBIDDEN'?403:422,result.error,result.error==='RESOLUTION_FORBIDDEN'?'Only the assigned Facilities Manager may resolve return issues.':'There are no unresolved return issues for this request.');return{data:result};});
+  app.post('/facilities/requests/:id/resolve', { preHandler: requireManager }, async (request,reply)=>{const {id}=idSchema.parse(request.params);const input=resolveSchema.parse(request.body);const result=await sql.begin(async(tx):Promise<RouteResult>=>{const rows=await tx<Array<{status:string}>>`select status from facilities_requests where id=${id} for update`;const item=rows[0];if(!item)return{error:'NOT_FOUND'};if(item.status!=='RETURNED')return{error:'INVALID_REQUEST_STATE'};const resolved=await tx`update facilities_request_items set issue_resolved_at=now(),issue_resolved_by=${request.currentUser.id},issue_resolution_note=${input.note} where request_id=${id} and return_condition in ('DAMAGED','MISSING') and issue_resolved_at is null`;if(!resolved.count)return{error:'NO_UNRESOLVED_ISSUES'};await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${id},${request.currentUser.id},'FACILITIES_RETURN_ISSUES_RESOLVED',${tx.json(input)},${request.id})`;return{resolved:resolved.count};});if(hasError(result))return sendError(reply,request.id,result.error==='NOT_FOUND'?404:422,result.error,'There are no unresolved return issues for this request.');return{data:result};});
 }
