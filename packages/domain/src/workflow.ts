@@ -1,3 +1,4 @@
+import { rolesCan } from './permissions.js';
 import type { InternalProcurementStatus, ProposalDecision, Role, WorkflowStage, WorkType } from './types.js';
 
 export const workflowByType: Record<WorkType, readonly WorkflowStage[]> = {
@@ -35,8 +36,8 @@ export function validateTransition(request: TransitionRequest): TransitionResult
   const stages = workflowByType[request.workType];
   const fromIndex = stages.indexOf(request.from);
   const toIndex = stages.indexOf(request.to);
-  const isManager = request.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
-  const isPersonInCharge = request.roles.includes('PERSON_IN_CHARGE');
+  const isManager = rolesCan(request.roles, 'work-order:manage');
+  const isPersonInCharge = rolesCan(request.roles, 'work-order:be-pic');
 
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return { allowed: false, code: 'INVALID_STAGE' };
 
@@ -82,7 +83,7 @@ export function validateTransition(request: TransitionRequest): TransitionResult
 }
 
 export function canCreateWorkOrder(roles: readonly Role[]): boolean {
-  return roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER' || role === 'PERSON_IN_CHARGE');
+  return rolesCan(roles, 'work-order:create');
 }
 
 export function canWorkerRecordProgress(input: {
@@ -92,7 +93,7 @@ export function canWorkerRecordProgress(input: {
   workType: WorkType;
   stage: WorkflowStage;
 }): boolean {
-  return input.roles.includes('WORKER') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
+  return rolesCan(input.roles, 'work-order:be-worker') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
 }
 
 export const procurementTransitions: Record<InternalProcurementStatus, readonly InternalProcurementStatus[]> = {
