@@ -41,7 +41,7 @@ describe('permissions', () => {
   it('describes every permission once, and everything needs woko.use', () => {
     expect(permissionManifest.map((entry) => entry.key)).toEqual([...permissions]);
     for (const entry of permissionManifest) {
-      expect(entry.description.length).toBeGreaterThan(5);
+      expect((entry.description ?? '').length).toBeGreaterThan(5);
       if (entry.key !== 'woko.use') expect(entry.requires).toContain('woko.use');
     }
   });

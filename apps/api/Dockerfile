@@ -3,7 +3,8 @@ WORKDIR /app
 COPY package.json package-lock.json* tsconfig.base.json ./
 COPY packages/domain/package.json packages/domain/tsconfig.json ./packages/domain/
 COPY apps/api/package.json apps/api/tsconfig.json ./apps/api/
-RUN npm install
+# mws-central-auth is installed from GitHub, which needs git.
+RUN apk add --no-cache git && npm install
 COPY packages/domain/src ./packages/domain/src
 COPY apps/api/src ./apps/api/src
 COPY apps/api/migrations ./apps/api/migrations

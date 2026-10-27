@@ -19,8 +19,10 @@ import { facilitiesRequestRoutes } from './facilities-requests.js';
 
 const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
 
-export async function buildApp() {
-  const app = Fastify({ logger: true, trustProxy: true, genReqId: () => crypto.randomUUID() });
+// `prepare` runs on the new app before anything is registered, so a test or the access check can see every route.
+export async function buildApp(options: { prepare?: (app: ReturnType<typeof Fastify>) => void; logger?: boolean } = {}) {
+  const app = Fastify({ logger: options.logger ?? true, trustProxy: true, genReqId: () => crypto.randomUUID() });
+  options.prepare?.(app);
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: {
