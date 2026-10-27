@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { can, canTransitionProcurement, type Permission, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
+import { can, canAny, canTransitionProcurement, type Permission, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
 import { z } from 'zod';
 import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
@@ -263,6 +263,8 @@ export async function workOrderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
   app.addHook('preHandler', async (request, reply) => {
     if (!request.routeOptions.url?.includes('/work-orders/:id') || request.method === 'DELETE') return;
+    // Someone who may not open work orders at all gets the 403 of the route, not a hint whether the id exists.
+    if (!canAny(request.currentUser.permissions, viewWorkOrders)) return;
     const parsed = z.object({ id: z.string().uuid() }).safeParse(request.params);
     if (!parsed.success) return;
     const rows = await sql`select 1 from work_orders where id = ${parsed.data.id} and removed_at is null`;

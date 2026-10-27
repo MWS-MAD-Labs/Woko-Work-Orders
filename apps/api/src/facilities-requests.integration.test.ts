@@ -287,6 +287,15 @@ describe('permission gates', () => {
     expect(create.statusCode).toBe(403);
   });
 
+  it('answers a person with no permissions with 403 whether or not the work order exists', async () => {
+    await userWith(nobodyId, 'nobody@millennia21.id', []);
+    const unknown = '00000000-0000-4000-8000-000000000000';
+    for (const [method, url] of [['GET', `/work-orders/${unknown}`], ['PATCH', `/work-orders/${unknown}/priority`], ['POST', `/work-orders/${unknown}/condition`]] as const) {
+      const response = await app.inject({ method, url: `/api/v1${url}`, headers: asUser(nobodyId), payload: method === 'GET' ? undefined : {} });
+      expect([url, response.statusCode]).toEqual([url, 403]);
+    }
+  });
+
   it('lets one permission open exactly its own routes', async () => {
     await userWith(readerId, 'reader@millennia21.id', ['work-order:read-all']);
     expect((await app.inject({ method: 'GET', url: '/api/v1/work-orders', headers: asUser(readerId) })).statusCode).toBe(200);
