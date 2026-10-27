@@ -108,7 +108,7 @@ export function WorkListsView({ currentUser, locale = 'en' }: { currentUser: Cur
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const listRequest = useRef<AbortController | null>(null);
   const detailRequest = useRef<AbortController | null>(null);
-  const manager = userCan(currentUser, 'work-list:manage');
+  const manager = userCan(currentUser, 'work-list.manage');
   const groups = useMemo(() => {
     const grouped = new Map<string, { key: string; title: string; recurrence: WorkListOccurrence['recurrence']; periodDate: string; dueAt: string; workers: NonNullable<WorkListOccurrence['workers']>; lists: WorkListOccurrence[] }>();
     for (const list of lists) {

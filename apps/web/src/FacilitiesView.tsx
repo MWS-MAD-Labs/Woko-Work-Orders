@@ -17,7 +17,7 @@ const copy = {
 } as const satisfies Record<Locale, Record<string, string>>;
 type Copy = { [Key in keyof typeof copy.en]: string };
 
-function isManager(user: CurrentUser) { return userCan(user, 'facilities:manage'); }
+function isManager(user: CurrentUser) { return userCan(user, 'facilities.manage'); }
 function formatDate(value: string, locale: Locale) { return new Intl.DateTimeFormat(locale === 'id' ? 'id-ID' : 'en-GB', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)); }
 function bookingWindowEnd(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type: string) => Number(parts.find((value) => value.type === type)!.value); const next = new Date(Date.UTC(part('year'), part('month') + 1, 1)); const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate(); return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(part('day'), lastDay)).padStart(2, '0')}T23:59`; }
 function jakartaIso(value: string) { const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value); if (!match) return null; return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]) - 7, Number(match[5]))).toISOString(); }

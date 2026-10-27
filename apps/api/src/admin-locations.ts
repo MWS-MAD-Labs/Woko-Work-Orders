@@ -20,7 +20,7 @@ const locationConfigurationSchema = z.object({
 
 export async function adminLocationRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.addHook('preHandler', requirePermission('settings:manage'));
+  app.addHook('preHandler', requirePermission('settings.manage'));
 
   app.get('/admin/locations', async () => {
     const [campuses, buildings, options] = await Promise.all([

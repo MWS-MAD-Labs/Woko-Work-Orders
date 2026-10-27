@@ -36,9 +36,9 @@ export function validateTransition(request: TransitionRequest): TransitionResult
   const stages = workflowByType[request.workType];
   const fromIndex = stages.indexOf(request.from);
   const toIndex = stages.indexOf(request.to);
-  const canApprove = can(request.permissions, 'work-order:approve');
-  const isManager = can(request.permissions, 'work-order:transition-any');
-  const isPersonInCharge = can(request.permissions, 'work-order:be-pic');
+  const canApprove = can(request.permissions, 'work-order.approve');
+  const isManager = can(request.permissions, 'work-order.transition-any');
+  const isPersonInCharge = can(request.permissions, 'work-order.be-pic');
 
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return { allowed: false, code: 'INVALID_STAGE' };
 
@@ -84,7 +84,7 @@ export function validateTransition(request: TransitionRequest): TransitionResult
 }
 
 export function canCreateWorkOrder(permissions: readonly Permission[]): boolean {
-  return can(permissions, 'work-order:create');
+  return can(permissions, 'work-order.create');
 }
 
 export function canWorkerRecordProgress(input: {
@@ -94,7 +94,7 @@ export function canWorkerRecordProgress(input: {
   workType: WorkType;
   stage: WorkflowStage;
 }): boolean {
-  return can(input.permissions, 'work-order:be-worker') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
+  return can(input.permissions, 'work-order.be-worker') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
 }
 
 export const procurementTransitions: Record<InternalProcurementStatus, readonly InternalProcurementStatus[]> = {

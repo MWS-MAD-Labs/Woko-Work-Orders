@@ -107,7 +107,7 @@ export function aggregateReport(rows: ReportRow[], academicYears: AcademicYear[]
 export async function reportRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
 
-  app.get('/reports/work-orders', { preHandler: requirePermission('work-order:read-all') }, async (request) => {
+  app.get('/reports/work-orders', { preHandler: requirePermission('work-order.read-all') }, async (request) => {
     const query = reportQuerySchema.parse(request.query);
     const [rows, academicYears, users, buildings, categories] = await Promise.all([
       sql<ReportRow[]>`

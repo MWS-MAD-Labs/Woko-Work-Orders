@@ -47,7 +47,7 @@ export function WorkListTemplateForm({ references, locale, onClose }: { referenc
   const [saving, setSaving] = useState(false);
   const [locationBuildingId, setLocationBuildingId] = useState(references.buildings[0]?.id ?? '');
   const [locationBranchId, setLocationBranchId] = useState('');
-  const workers = references.users.filter((user) => userCan(user, 'work-list:be-worker'));
+  const workers = references.users.filter((user) => userCan(user, 'work-list.be-worker'));
 
   const locations = useMemo(() => references.locationOptions.map((location) => ({
     ...location,

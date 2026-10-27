@@ -15,6 +15,6 @@ describe('work-order visibility scope', () => {
   });
 
   it('adds up when a person holds permissions of several kinds', () => {
-    expect(resolveWorkOrderScope([...permissionBundles.worker, 'work-order:read-all'], 'all')).toBe('all');
+    expect(resolveWorkOrderScope([...permissionBundles.worker, 'work-order.read-all'], 'all')).toBe('all');
   });
 });

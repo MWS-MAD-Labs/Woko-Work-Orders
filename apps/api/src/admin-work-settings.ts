@@ -10,7 +10,7 @@ const fixedCodes = new Set<string>([...workTypes, ...executionWindows]);
 
 export async function adminWorkSettingRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.addHook('preHandler', requirePermission('settings:manage'));
+  app.addHook('preHandler', requirePermission('settings.manage'));
 
   app.get('/admin/work-settings', async () => {
     const options = await sql`

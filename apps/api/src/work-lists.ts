@@ -14,7 +14,7 @@ const resolveSchema = z.object({ status: z.enum(['NOT_APPLICABLE', 'ISSUE_FOUND'
 const completionNoteSchema = z.string().trim().max(2_000).default('');
 
 
-function manager(permissions: readonly Permission[]) { return can(permissions, 'work-list:manage'); }
+function manager(permissions: readonly Permission[]) { return can(permissions, 'work-list.manage'); }
 async function occurrenceAccess(occurrenceId: string, userId: string, permissions: readonly Permission[]): Promise<'ALLOWED' | 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND'> {
   const rows = await sql<Array<{ status: string; assigned: boolean }>>`select status, ${userId} = any(worker_ids) as assigned from work_list_occurrences where id=${occurrenceId}`;
   const occurrence = rows[0];
@@ -30,14 +30,14 @@ function accessError(access: 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND', requestId: st
   return { status: 403, body: { error: { code: 'FORBIDDEN', message: 'You are no longer assigned to this Routine Work.', requestId } } };
 }
 async function ensureWorkers(workerIds: string[]) {
-  const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_permissions up on up.user_id = u.id where u.active and up.permission = 'work-list:be-worker' and u.id = any(${workerIds}::uuid[])`;
+  const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_permissions up on up.user_id = u.id where u.active and up.permission = 'work-list.be-worker' and u.id = any(${workerIds}::uuid[])`;
   return rows.length === workerIds.length;
 }
 
 export async function workListRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
 
-  app.get('/work-lists/templates', { preHandler: requirePermission('work-list:manage') }, async () => {
+  app.get('/work-lists/templates', { preHandler: requirePermission('work-list.manage') }, async () => {
     const templates = await sql`
       select t.id, t.title, t.instructions, t.active, t.version, t.created_at::text, t.updated_at::text,
         coalesce((select json_agg(json_build_object('id', i.id, 'title', i.title, 'instructions', i.instructions, 'recurrence', i.recurrence, 'required', i.required, 'sort_order', i.sort_order) order by i.sort_order) from work_list_template_items i where i.template_id = t.id), '[]'::json) items,
@@ -47,7 +47,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: templates };
   });
 
-  app.post('/work-lists/templates', { preHandler: requirePermission('work-list:manage') }, async (request, reply) => {
+  app.post('/work-lists/templates', { preHandler: requirePermission('work-list.manage') }, async (request, reply) => {
     const input = templateSchema.parse(request.body);
     if (!await ensureWorkers(input.workerIds)) return reply.code(422).send({ error: { code: 'INVALID_WORKER', message: 'Every assigned person must be an active Worker.', requestId: request.id } });
     const result = await sql.begin(async (tx) => {
@@ -63,7 +63,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return reply.code(201).send({ data: result });
   });
 
-  app.put('/work-lists/templates/:id', { preHandler: requirePermission('work-list:manage') }, async (request, reply) => {
+  app.put('/work-lists/templates/:id', { preHandler: requirePermission('work-list.manage') }, async (request, reply) => {
     const templateId = id.parse((request.params as { id: string }).id); const input = templateSchema.parse(request.body);
     if (!await ensureWorkers(input.workerIds)) return reply.code(422).send({ error: { code: 'INVALID_WORKER', message: 'Every assigned person must be an active Worker.', requestId: request.id } });
     const changed = await sql.begin(async (tx) => {
@@ -81,7 +81,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: { updated: true } };
   });
 
-  app.get('/work-lists', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request) => {
+  app.get('/work-lists', { preHandler: requireAnyPermission(['work-list.manage', 'work-list.be-worker']) }, async (request) => {
     const localDate = localDateInTimeZone();
     const query = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(200).default(200) }).parse(request.query);
     const rows = await sql`
@@ -98,7 +98,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: rows.slice(0, query.limit), meta: { limit: query.limit, offset: query.offset, hasMore, nextOffset: hasMore ? query.offset + query.limit : null } };
   });
 
-  app.get('/work-lists/:id', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
+  app.get('/work-lists/:id', { preHandler: requireAnyPermission(['work-list.manage', 'work-list.be-worker']) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { id: string }).id);
     const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
@@ -107,7 +107,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: occurrences[0] };
   });
 
-  app.get('/work-lists/evidence/:evidenceId', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
+  app.get('/work-lists/evidence/:evidenceId', { preHandler: requireAnyPermission(['work-list.manage', 'work-list.be-worker']) }, async (request, reply) => {
     const evidenceId = id.parse((request.params as { evidenceId: string }).evidenceId);
     const rows = await sql<Array<{ occurrence_id: string; drive_file_id: string; file_name: string; mime_type: string }>>`select occurrence_id, drive_file_id, file_name, mime_type from work_list_evidence where id=${evidenceId}`;
     const evidence = rows[0];
@@ -121,7 +121,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return reply.send(await downloadDriveFile(evidence.drive_file_id));
   });
 
-  app.patch('/work-lists/:occurrenceId/items/:itemId', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
+  app.patch('/work-lists/:occurrenceId/items/:itemId', { preHandler: requireAnyPermission(['work-list.manage', 'work-list.be-worker']) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { occurrenceId: string }).occurrenceId); const itemId = id.parse((request.params as { itemId: string }).itemId); const input = resolveSchema.parse(request.body);
     const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
@@ -151,7 +151,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-lists/:occurrenceId/items/:itemId/complete', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
+  app.post('/work-lists/:occurrenceId/items/:itemId/complete', { preHandler: requireAnyPermission(['work-list.manage', 'work-list.be-worker']) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { occurrenceId: string }).occurrenceId);
     const itemId = id.parse((request.params as { itemId: string }).itemId);
     const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);

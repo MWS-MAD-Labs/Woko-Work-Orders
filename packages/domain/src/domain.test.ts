@@ -121,7 +121,7 @@ describe('work-order number', () => {
 
 describe('v0.6 authorization policies', () => {
   it('has the worker permission and permits PIC creation', () => {
-    expect(permissions).toContain('work-order:be-worker');
+    expect(permissions).toContain('work-order.be-worker');
     expect(canCreateWorkOrder(permissionBundles.personInCharge)).toBe(true);
     expect(canCreateWorkOrder(permissionBundles.worker)).toBe(false);
   });

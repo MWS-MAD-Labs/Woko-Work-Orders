@@ -89,9 +89,9 @@ docs/
      on conflict do nothing;
      insert into user_permissions (user_id, permission)
      select '30000000-0000-4000-8000-000000000001', unnest(array[
-       'work-order:create','work-order:read-all','work-order:operate-any','work-order:transition-any','work-order:approve',
-       'work-order:reopen','work-order:cancel','work-order:set-schedule','work-order:manage-participants','work-order:read-audit',
-       'work-order:delete','work-order:be-reviewer','work-list:manage','facilities:request','facilities:manage','settings:manage','users:manage'])
+       'work-order.create','work-order.read-all','work-order.operate-any','work-order.transition-any','work-order.approve',
+       'work-order.reopen','work-order.cancel','work-order.set-schedule','work-order.manage-participants','work-order.read-audit',
+       'work-order.delete','work-order.be-reviewer','work-list.manage','facilities.request','facilities.manage','settings.manage','users.manage'])
      on conflict do nothing;"
    ```
 
@@ -113,7 +113,7 @@ With `AUTH_MODE=google`, register `http://localhost:5173/api/v1/auth/callback` a
 
 ## Access model
 
-Woko follows the MWS Access Standard (`mws-data-center/docs/access-standard.md`, v1.0). The code checks permissions, never role names, and each API route declares the permission it needs. The permission list lives in `packages/domain/src/permissions.ts`. Today the permissions are kept per user in Woko (`user_permissions`) and granted from the User Access screen; moving login to Hub and the permissions to Central is tracked in `mws-data-center/docs/access-conformance.md`. Known gaps: key names still use `domain:action` instead of `domain.action` (AS-3), and there is no `permissions:sync` yet (AS-4).
+Woko follows the MWS Access Standard (`mws-data-center/docs/access-standard.md`, v1.0). The code checks permissions, never role names, and each API route declares the permission it needs. The permission list lives in `packages/domain/src/permissions.ts`. Today the permissions are kept per user in Woko (`user_permissions`) and granted from the User Access screen; moving login to Hub and the permissions to Central is tracked in `mws-data-center/docs/access-conformance.md`. Keys are `domain.action` (AS-3). Known gaps: there is no `permissions:sync` yet (AS-4), no `<app>.use` permission, and the `manage` permissions have no matching `read`.
 
 ## Verification
 

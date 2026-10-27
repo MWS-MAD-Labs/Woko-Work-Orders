@@ -287,7 +287,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get(
     "/admin/users",
-    { preHandler: [authenticate, requirePermission("users:manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage")] },
     async () => {
       const users = await sql`
       select u.id, u.email::text, u.full_name, u.active, u.google_subject_id is not null as identity_linked,
@@ -302,7 +302,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post(
     "/admin/users",
-    { preHandler: [authenticate, requirePermission("users:manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage")] },
     async (request, reply) => {
       const input = z
         .object({
@@ -361,7 +361,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post(
     "/admin/users/:id/resend-invitation",
-    { preHandler: [authenticate, requirePermission("users:manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const result = await sql.begin(async (transaction) => {
@@ -428,7 +428,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.patch(
     "/admin/users/:id",
-    { preHandler: [authenticate, requirePermission("users:manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage")] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const input = z
@@ -436,7 +436,7 @@ export async function authRoutes(app: FastifyInstance) {
         .parse(request.body);
       if (
         id === request.currentUser.id &&
-        (!input.active || !input.permissions.includes("users:manage"))
+        (!input.active || !input.permissions.includes("users.manage"))
       )
         return reply
           .code(422)
