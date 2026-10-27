@@ -103,13 +103,24 @@ The default development ports are:
 - API: `3001`
 - PostgreSQL: `127.0.0.1:5433`
 
-With `AUTH_MODE=google`, register `http://localhost:5173/api/v1/auth/callback` as an authorized Google OAuth redirect URI. The first verified identity in the configured Google Workspace domain becomes the initial administrator when no internal users exist; subsequent users must be registered and activated by an administrator.
+With `AUTH_MODE=hub`, see [Signing in through the Hub](#signing-in-through-the-hub). With `AUTH_MODE=google`, register `http://localhost:5173/api/v1/auth/callback` as an authorized Google OAuth redirect URI. The first verified identity in the configured Google Workspace domain becomes the initial administrator when no internal users exist; subsequent users must be registered and activated by an administrator.
 
 ### Local troubleshooting
 
 - **A port is already in use.** Change `PORT` for the API (the Vite proxy follows it), `POSTGRES_PORT` and `DATABASE_URL` for PostgreSQL, and start the web app with `npm run dev -w @woko/web -- --port 5174` (then set `WEB_ORIGIN` to match). Vite reads the `.env` in the repo root, so restart it after changing `PORT`.
 - **`EMFILE: too many open files, watch ...` when starting Vite.** The machine ran out of inotify instances, usually because many dev servers are running. Stop some, or raise the limit: `sudo sysctl fs.inotify.max_user_instances=1024` (add `fs.inotify.max_user_instances=1024` to `/etc/sysctl.d/99-inotify.conf` to keep it after a reboot).
 - **The API exits with a `ZodError` about a `GOOGLE_*` key.** An empty value such as `GOOGLE_OAUTH_CLIENT_ID=` is rejected. Remove or comment out the key.
+
+## Signing in through the Hub
+
+`AUTH_MODE=hub` is the target mode. The Hub's shared session says who someone is, and Central's entitlement for the `woko` application says what they may do. Woko keeps no password and no role of its own.
+
+- A request without the Hub cookie gets 401, and `/api/v1/auth/login` sends the browser to the Hub to restore the session and back. A person without an entitlement gets 403 `NO_ACCESS`. If Central cannot be asked, the API answers 503 `CENTRAL_UNAVAILABLE` and does not fall back to old rights.
+- The entitlement is cached for up to 60 seconds, so a change in Central reaches an open session within a minute (AS-11).
+- The first time someone signs in, Woko creates the local user. An existing user with the same email is linked once (`users.central_person_id`) and keeps their history. An email already linked to another person is refused with 409 `ACCOUNT_CONFLICT`.
+- Pickers and notifications need other people's rights, so a job copies Central's entitlements into `user_permissions` every `CENTRAL_SYNC_INTERVAL_MINUTES` (default 5). The table is a copy in this mode and the User Access screen is read only. Granting access is done in Central, and the administrator comes from a Central group (AS-12).
+- Check before switching a deployment: `npm run central:sync -- --dry-run` prints what would be created, linked, renamed, changed and switched off, and how many local users have no match in Central. `--apply` does it, `--deactivate-unlinked` also switches off local users that Central does not know.
+- `AUTH_MODE=google` stays as the way back until `hub` is proven in staging.
 
 ## Access model
 

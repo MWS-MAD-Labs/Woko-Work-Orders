@@ -8,6 +8,7 @@ export interface CurrentUser {
   permissions: Permission[];
   preferredLocale: 'id' | 'en';
   sessionExpiresAt: string;
+  authMode?: 'google' | 'hub' | 'test';
 }
 
 export interface AdminUser {

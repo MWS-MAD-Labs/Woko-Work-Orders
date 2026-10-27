@@ -307,7 +307,7 @@ export async function authRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, requirePermission("users.read")] },
     async () => {
       const users = await sql`
-      select u.id, u.email::text, u.full_name, u.active, u.google_subject_id is not null as identity_linked,
+      select u.id, u.email::text, u.full_name, u.active, (u.google_subject_id is not null or u.central_person_id is not null) as identity_linked,
         u.last_login_at::text, u.created_at::text,
         coalesce(array_agg(up.permission order by up.permission) filter (where up.permission is not null), '{}') as permissions
       from users u left join user_permissions up on up.user_id = u.id

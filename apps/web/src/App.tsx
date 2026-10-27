@@ -89,7 +89,7 @@ function localizedEnum(value: string, locale: Locale): string {
 
 function LoginScreen({ error, locale }: { error?: string; locale: Locale }) {
   const idLocale = locale === 'id';
-  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">{idLocale ? 'Pekerjaan' : 'Work Order'}</span><h1>{idLocale ? 'Masuk ke Woko' : 'Sign in to Woko'}</h1><p>{idLocale ? 'Gunakan akun Google Workspace ' : 'Use your registered '}<strong>@millennia21.id</strong>{idLocale ? ' yang telah terdaftar.' : ' Google Workspace account.'}</p>{error && <p className="form-error">{idLocale ? 'Gagal masuk' : 'Sign-in failed'}: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> {idLocale ? 'Lanjutkan dengan Google' : 'Continue with Google'}</a></section></main>;
+  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">{idLocale ? 'Pekerjaan' : 'Work Order'}</span><h1>{idLocale ? 'Masuk ke Woko' : 'Sign in to Woko'}</h1><p>{idLocale ? 'Gunakan akun ' : 'Use your registered '}<strong>@millennia21.id</strong>{idLocale ? ' yang telah terdaftar.' : ' account.'}</p>{error && <p className="form-error">{idLocale ? 'Gagal masuk' : 'Sign-in failed'}: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> {idLocale ? 'Lanjutkan' : 'Continue'}</a></section></main>;
 }
 
 function StartupErrorScreen({ message, locale, onRetry }: { message: string; locale: Locale; onRetry: () => void }) {
@@ -326,7 +326,11 @@ export default function App() {
       })
       .catch((caught) => {
         if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
-        else { setStartupError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Aplikasi tidak dapat dimuat.' : 'The application could not be loaded.')); setAuthState('error'); }
+        else {
+          const noAccess = caught instanceof ApiError && caught.code === 'NO_ACCESS';
+          setStartupError(noAccess ? (locale === 'id' ? 'Anda belum memiliki akses ke Woko. Minta akses melalui admin Hub.' : 'You do not have access to Woko yet. Ask a Hub admin to give you access.') : caught instanceof Error ? caught.message : (locale === 'id' ? 'Aplikasi tidak dapat dimuat.' : 'The application could not be loaded.'));
+          setAuthState('error');
+        }
       });
   }, [syncFromUrl]);
 
@@ -378,7 +382,12 @@ export default function App() {
     try { setPushStatus(await subscribeToPushNotifications()); } catch { setPushStatus('failed'); }
   };
 
-  const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => undefined); setCurrentUser(null); setAuthState('unauthenticated'); };
+  const logout = async () => {
+    const result = await api<{ loggedOut: boolean; redirectTo?: string }>('/auth/logout', { method: 'POST' }).catch(() => undefined);
+    setCurrentUser(null); setAuthState('unauthenticated');
+    // with the Hub the session is shared, so signing out ends at the Hub
+    if (result?.redirectTo) window.location.assign(result.redirectTo);
+  };
   const loginError = new URLSearchParams(window.location.search).get('error') ?? undefined;
   if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>{locale === 'id' ? 'Memeriksa sesi Anda…' : 'Checking your session…'}</p></section></main>;
   if (authState === 'error') return <StartupErrorScreen message={startupError} locale={locale} onRetry={() => window.location.reload()} />;
@@ -438,7 +447,7 @@ export default function App() {
     {canCreate && primaryPage === 'work-orders' && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
     <nav className="bottom-nav" aria-label={locale === 'id' ? 'Navigasi seluler' : 'Mobile navigation'}><button className={primaryPage === 'work-orders' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button className={primaryPage === 'work-lists' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /><span>{locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</span></button><button className={primaryPage === 'facilities' ? 'active' : ''} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /><span>{locale === 'id' ? 'Fasilitas' : 'Facilities'}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{canApproveAny && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{canReadAll && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
-    {showOrganizationSettings && canReadAll && references && <OrganizationSettings references={references} administrator={userCan(currentUser, 'settings.manage')} locale={locale} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
+    {showOrganizationSettings && canReadAll && references && <OrganizationSettings references={references} administrator={userCan(currentUser, 'settings.manage')} managedByCentral={currentUser.authMode === 'hub'} locale={locale} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
     {showApprovals && canApproveAny && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
     {showNotifications && <NotificationsView locale={locale} onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('digest'); window.history.replaceState({}, '', url); setShowNotifications(false); }} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={userCan(currentUser, 'settings.manage')} />}
     {showReports && <ReportsView locale={locale} onClose={() => setShowReports(false)} />}
