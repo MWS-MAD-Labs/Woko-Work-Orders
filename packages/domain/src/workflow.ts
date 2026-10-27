@@ -1,5 +1,5 @@
-import { rolesCan } from './permissions.js';
-import type { InternalProcurementStatus, ProposalDecision, Role, WorkflowStage, WorkType } from './types.js';
+import { can, type Permission } from './permissions.js';
+import type { InternalProcurementStatus, ProposalDecision, WorkflowStage, WorkType } from './types.js';
 
 export const workflowByType: Record<WorkType, readonly WorkflowStage[]> = {
   INTERNAL: ['PLANNED', 'SCHEDULED', 'IN_PROGRESS', 'REVIEW', 'COMPLETED'],
@@ -16,7 +16,7 @@ export interface TransitionRequest {
   workType: WorkType;
   from: WorkflowStage;
   to: WorkflowStage;
-  roles: readonly Role[];
+  permissions: readonly Permission[];
   reason?: string;
   hasProposalEvidence?: boolean;
   hasCompletionEvidence?: boolean;
@@ -36,9 +36,9 @@ export function validateTransition(request: TransitionRequest): TransitionResult
   const stages = workflowByType[request.workType];
   const fromIndex = stages.indexOf(request.from);
   const toIndex = stages.indexOf(request.to);
-  const canApprove = rolesCan(request.roles, 'work-order:approve');
-  const isManager = rolesCan(request.roles, 'work-order:transition-any');
-  const isPersonInCharge = rolesCan(request.roles, 'work-order:be-pic');
+  const canApprove = can(request.permissions, 'work-order:approve');
+  const isManager = can(request.permissions, 'work-order:transition-any');
+  const isPersonInCharge = can(request.permissions, 'work-order:be-pic');
 
   if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return { allowed: false, code: 'INVALID_STAGE' };
 
@@ -83,18 +83,18 @@ export function validateTransition(request: TransitionRequest): TransitionResult
   return { allowed: true };
 }
 
-export function canCreateWorkOrder(roles: readonly Role[]): boolean {
-  return rolesCan(roles, 'work-order:create');
+export function canCreateWorkOrder(permissions: readonly Permission[]): boolean {
+  return can(permissions, 'work-order:create');
 }
 
 export function canWorkerRecordProgress(input: {
-  roles: readonly Role[];
+  permissions: readonly Permission[];
   assignedWorker: boolean;
   status: string;
   workType: WorkType;
   stage: WorkflowStage;
 }): boolean {
-  return rolesCan(input.roles, 'work-order:be-worker') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
+  return can(input.permissions, 'work-order:be-worker') && input.assignedWorker && input.status === 'ACTIVE' && input.workType === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(input.stage);
 }
 
 export const procurementTransitions: Record<InternalProcurementStatus, readonly InternalProcurementStatus[]> = {

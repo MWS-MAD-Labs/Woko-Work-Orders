@@ -1,8 +1,5 @@
 import { z } from 'zod';
 
-export const roles = ['ADMINISTRATOR', 'FACILITIES_MANAGER', 'PERSON_IN_CHARGE', 'WORKER', 'OVERSEER'] as const;
-export type Role = (typeof roles)[number];
-
 export const workTypes = ['INTERNAL', 'VENDOR'] as const;
 export type WorkType = (typeof workTypes)[number];
 

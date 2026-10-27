@@ -1,40 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { can, permissions, permissionsForRoles, rolePermissions, rolesCan, rolesWithPermission } from './permissions.js';
-import { roles } from './types.js';
+import { can, canAny, isPermission, permissionBundles, permissionGroups, permissions } from './permissions.js';
+
+const managerOnly = ['work-order:operate-any', 'work-order:transition-any', 'work-order:approve', 'work-order:reopen', 'work-order:cancel', 'work-order:set-schedule', 'work-order:manage-participants', 'work-order:read-audit', 'work-order:read-all'] as const;
 
 describe('permissions', () => {
-  it('gives every role the rights it had before, and nothing more', () => {
-    expect(permissionsForRoles(['ADMINISTRATOR'])).toEqual(permissions.filter((p) => !['work-order:be-pic', 'work-order:be-worker', 'work-order:be-overseer', 'work-list:be-worker'].includes(p)));
-    expect(permissionsForRoles(['FACILITIES_MANAGER'])).not.toContain('work-order:delete');
-    expect(permissionsForRoles(['FACILITIES_MANAGER'])).not.toContain('users:manage');
-    expect(permissionsForRoles(['FACILITIES_MANAGER'])).not.toContain('settings:manage');
-    expect(permissionsForRoles(['PERSON_IN_CHARGE'])).toEqual(['work-order:create', 'work-order:be-pic']);
-    expect(permissionsForRoles(['WORKER'])).toEqual(['work-order:be-worker', 'work-list:be-worker']);
-    expect(permissionsForRoles(['OVERSEER'])).toEqual(['work-order:be-overseer']);
+  it('lists every permission once, in a group, and every group member exists', () => {
+    expect(new Set(permissions).size).toBe(permissions.length);
+    const grouped = permissionGroups.flatMap((group) => group.permissions);
+    expect([...grouped].sort()).toEqual([...permissions].sort());
   });
 
-  it('keeps every manager action with the managers, and none with PIC, Worker or Overseer', () => {
-    const manager = ['work-order:operate-any', 'work-order:transition-any', 'work-order:approve', 'work-order:reopen', 'work-order:cancel', 'work-order:set-schedule', 'work-order:manage-participants', 'work-order:read-audit', 'work-order:read-all'] as const;
-    for (const role of ['ADMINISTRATOR', 'FACILITIES_MANAGER'] as const) for (const p of manager) expect(rolesCan([role], p)).toBe(true);
-    for (const role of ['PERSON_IN_CHARGE', 'WORKER', 'OVERSEER'] as const) for (const p of manager) expect(rolesCan([role], p)).toBe(false);
+  it('keeps the rights each bundle had before they became plain lists', () => {
+    expect([...permissionBundles.administrator].sort()).toEqual(
+      permissions.filter((p) => !['work-order:be-pic', 'work-order:be-worker', 'work-order:be-overseer', 'work-list:be-worker', 'work-list:receive-digest', 'facilities:default-approver'].includes(p)).sort(),
+    );
+    expect(permissionBundles.facilitiesManager).not.toContain('work-order:delete');
+    expect(permissionBundles.facilitiesManager).not.toContain('users:manage');
+    expect(permissionBundles.facilitiesManager).not.toContain('settings:manage');
+    expect(permissionBundles.facilitiesManager).toContain('work-list:receive-digest');
+    expect(permissionBundles.personInCharge).toEqual(['work-order:create', 'work-order:be-pic']);
+    expect(permissionBundles.worker).toEqual(['work-order:be-worker', 'work-list:be-worker']);
+    expect(permissionBundles.overseer).toEqual(['work-order:be-overseer']);
   });
 
-  it('adds up the roles of one person without repeating a permission', () => {
-    const both = permissionsForRoles(['PERSON_IN_CHARGE', 'WORKER', 'PERSON_IN_CHARGE']);
-    expect(both).toEqual(['work-order:create', 'work-order:be-pic', 'work-order:be-worker', 'work-list:be-worker']);
-    expect(permissionsForRoles([])).toEqual([]);
+  it('keeps every manager action out of the PIC, worker and overseer bundles', () => {
+    for (const bundle of ['administrator', 'facilitiesManager'] as const) for (const p of managerOnly) expect(permissionBundles[bundle]).toContain(p);
+    for (const bundle of ['personInCharge', 'worker', 'overseer'] as const) for (const p of managerOnly) expect(permissionBundles[bundle]).not.toContain(p);
   });
 
-  it('answers from permissions, roles, or the roles that hold it', () => {
+  it('answers for one permission, any of several, and unknown values', () => {
     expect(can(['work-order:approve'], 'work-order:approve')).toBe(true);
     expect(can(undefined, 'work-order:approve')).toBe(false);
-    expect(rolesCan(['WORKER'], 'work-order:approve')).toBe(false);
-    expect(rolesWithPermission('work-order:approve')).toEqual(['ADMINISTRATOR', 'FACILITIES_MANAGER']);
-    expect(rolesWithPermission('work-list:be-worker')).toEqual(['WORKER']);
-  });
-
-  it('knows every role, and uses only listed permissions', () => {
-    expect(Object.keys(rolePermissions).sort()).toEqual([...roles].sort());
-    for (const list of Object.values(rolePermissions)) for (const p of list) expect(permissions).toContain(p);
+    expect(canAny(['work-order:be-pic'], ['work-order:be-worker', 'work-order:be-pic'])).toBe(true);
+    expect(canAny([], ['work-order:be-pic'])).toBe(false);
+    expect(isPermission('users:manage')).toBe(true);
+    expect(isPermission('ADMINISTRATOR')).toBe(false);
+    expect(isPermission(5)).toBe(false);
   });
 });
