@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Check, Mail, Plus, ShieldCheck, X } from 'lucide-react';
-import { permissionBundles, permissionGroups, type Permission, type PermissionBundle } from '@woko/domain';
+import { permissionBundles, permissionGroups, withoutDependents, withRequirements, type Permission, type PermissionBundle } from '@woko/domain';
 import { api } from './api';
 import type { Locale } from './i18n';
 import { bundleLabels, groupLabels, permissionLabels } from './permission-labels';
@@ -8,7 +8,7 @@ import type { AdminUser } from './types';
 
 function PermissionChecks({ selected, locale, onChange }: { selected: readonly Permission[]; locale: Locale; onChange: (permissions: Permission[]) => void }) {
   const id = locale === 'id';
-  const toggle = (permission: Permission, on: boolean) => onChange(on ? [...selected, permission] : selected.filter((item) => item !== permission));
+  const toggle = (permission: Permission, on: boolean) => onChange(on ? withRequirements(selected, permission) : withoutDependents(selected, permission));
   return <div className="permission-checks">
     <div className="bundle-buttons" role="group" aria-label={id ? 'Isi dari paket' : 'Fill from a bundle'}>
       <span>{id ? 'Isi dari paket:' : 'Fill from a bundle:'}</span>

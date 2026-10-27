@@ -296,6 +296,47 @@ describe('permission gates', () => {
     expect(rows.map((row) => row.permission)).toEqual(['facilities.manage', 'work-order.create', 'work-order.read-all']);
   });
 
+  it('turns away a person without woko.use from everything, even with other permissions', async () => {
+    await userWith(readerId, 'reader@millennia21.id', ['work-order.read-all', 'facilities.request']);
+    for (const url of ['/me', '/work-orders', '/facilities/assets']) {
+      const response = await app.inject({ method: 'GET', url: `/api/v1${url}`, headers: asUser(readerId) });
+      expect([url, response.statusCode, (await body(response)).error?.code]).toEqual([url, 403, 'NO_ACCESS']);
+    }
+  });
+
+  it('refuses a list that misses what a permission needs, and says which', async () => {
+    const response = await app.inject({ method: 'POST', url: '/api/v1/admin/users', headers: asUser(unrelatedAdminId), payload: { email: 'needs@millennia21.id', fullName: 'Needs Something', permissions: ['users.manage'] } });
+    expect(response.statusCode).toBeGreaterThanOrEqual(400);
+    expect(JSON.stringify(await body(response))).toContain('needs');
+    expect(await sql`select 1 from users where email = 'needs@millennia21.id'`).toHaveLength(0);
+  });
+
+  it('lets read see and manage change, for users and for settings', async () => {
+    await userWith(readerId, 'reader@millennia21.id', ['woko.use', 'users.read', 'settings.read']);
+    const get = (url: string) => app.inject({ method: 'GET', url: `/api/v1${url}`, headers: asUser(readerId) });
+    expect((await get('/admin/users')).statusCode).toBe(200);
+    expect((await get('/admin/locations')).statusCode).toBe(200);
+    expect((await get('/admin/work-settings')).statusCode).toBe(200);
+    const write = [
+      await app.inject({ method: 'POST', url: '/api/v1/admin/users', headers: asUser(readerId), payload: {} }),
+      await app.inject({ method: 'PUT', url: '/api/v1/admin/locations', headers: asUser(readerId), payload: {} }),
+      await app.inject({ method: 'PUT', url: '/api/v1/admin/work-settings', headers: asUser(readerId), payload: {} }),
+    ];
+    expect(write.map((response) => response.statusCode)).toEqual([403, 403, 403]);
+  });
+
+  it('gives woko.use and the read permissions to the people who had a manage permission (migration 0029)', async () => {
+    const ids = ['30000000-0000-4000-8000-0000000000b1', '30000000-0000-4000-8000-0000000000b2'];
+    await userWith(ids[0]!, 'old-admin@millennia21.id', ['users.manage', 'settings.manage', 'work-list.manage', 'facilities.manage']);
+    await userWith(ids[1]!, 'old-worker@millennia21.id', ['work-order.be-worker']);
+    const { readFile } = await import('node:fs/promises');
+    await sql.unsafe(await readFile(new URL('../migrations/0029_woko_use_and_read_permissions.sql', import.meta.url), 'utf8'));
+    const held = async (id: string) => (await sql<Array<{ permission: string }>>`select permission from user_permissions where user_id = ${id} order by permission`).map((row) => row.permission);
+    expect(await held(ids[0]!)).toEqual(['facilities.manage', 'facilities.read', 'settings.manage', 'settings.read', 'users.manage', 'users.read', 'woko.use', 'work-list.manage', 'work-list.read']);
+    expect(await held(ids[1]!)).toEqual(['woko.use', 'work-order.be-worker']);
+    await sql`delete from user_permissions where user_id = any(${ids}::uuid[])`;
+  });
+
   it('answers a person with no permissions with 403 whether or not the work order exists', async () => {
     await userWith(nobodyId, 'nobody@millennia21.id', []);
     const unknown = '00000000-0000-4000-8000-000000000000';
@@ -306,7 +347,7 @@ describe('permission gates', () => {
   });
 
   it('lets one permission open exactly its own routes', async () => {
-    await userWith(readerId, 'reader@millennia21.id', ['work-order.read-all']);
+    await userWith(readerId, 'reader@millennia21.id', ['woko.use', 'work-order.read-all']);
     expect((await app.inject({ method: 'GET', url: '/api/v1/work-orders', headers: asUser(readerId) })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/v1/admin/users', headers: asUser(readerId) })).statusCode).toBe(403);
     expect((await app.inject({ method: 'GET', url: '/api/v1/approvals', headers: asUser(readerId) })).statusCode).toBe(403);
@@ -322,12 +363,12 @@ describe('permission gates', () => {
     const register = (permissions: string[]) => app.inject({ method: 'POST', url: '/api/v1/admin/users', headers: asUser(unrelatedAdminId), payload: { email: `new-${permissions.length}@millennia21.id`, fullName: 'New Person', permissions } });
     expect((await register(['work-order.be-pic', 'not-a-permission'])).statusCode).toBeGreaterThanOrEqual(400);
     expect((await register([])).statusCode).toBeGreaterThanOrEqual(400);
-    const created = await register(['work-order.be-pic', 'work-order.create']);
+    const created = await register(['woko.use', 'work-order.be-pic', 'work-order.create']);
     expect(created.statusCode).toBe(201);
     const stored = await sql<Array<{ permission: string }>>`select permission from user_permissions where user_id = ${(await body(created)).data.id} order by permission`;
-    expect(stored.map((row) => row.permission)).toEqual(['work-order.be-pic', 'work-order.create']);
+    expect(stored.map((row) => row.permission)).toEqual(['woko.use', 'work-order.be-pic', 'work-order.create']);
 
-    const lockout = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${unrelatedAdminId}`, headers: asUser(unrelatedAdminId), payload: { active: true, permissions: ['work-order.create'] } });
+    const lockout = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${unrelatedAdminId}`, headers: asUser(unrelatedAdminId), payload: { active: true, permissions: ['woko.use', 'work-order.create'] } });
     expect(lockout.statusCode).toBe(422);
     await sql`delete from users where email like 'new-%@millennia21.id'`;
   });

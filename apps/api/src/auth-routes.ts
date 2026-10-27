@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { can, isPermission, permissionBundles, type Permission } from "@woko/domain";
+import { can, isPermission, missingRequirements, permissionBundles, type Permission } from "@woko/domain";
 import { CodeChallengeMethod } from "google-auth-library";
 import { z } from "zod";
 import {
@@ -36,7 +36,10 @@ function loginErrorUrl(code: string): string {
 const permissionList = z
   .array(z.string().refine(isPermission, "Unknown permission"))
   .min(1)
-  .transform((list) => [...new Set(list)] as Permission[]);
+  .transform((list) => [...new Set(list)] as Permission[])
+  .superRefine((list, context) => {
+    for (const [key, needed] of missingRequirements(list)) context.addIssue({ code: "custom", message: `Permission "${key}" needs "${needed}"` });
+  });
 
 export async function authRoutes(app: FastifyInstance) {
   app.get("/auth/login", async (request, reply) => {
@@ -287,7 +290,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.get(
     "/admin/users",
-    { preHandler: [authenticate, requirePermission("users.manage")] },
+    { preHandler: [authenticate, requirePermission("users.read")] },
     async () => {
       const users = await sql`
       select u.id, u.email::text, u.full_name, u.active, u.google_subject_id is not null as identity_linked,

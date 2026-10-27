@@ -38,7 +38,7 @@ export function validateBookingTimes({ startsAt, endsAt, now = new Date() }: Boo
   if (dateInSchoolTimeZone(start) > bookingWindowEnd(now) || dateInSchoolTimeZone(end) > bookingWindowEnd(now)) return { ok: false, code: 'BOOKING_WINDOW_EXCEEDED' };
   return { ok: true };
 }
-function isManager(permissions: readonly Permission[]) { return can(permissions, 'facilities.manage'); }
+function seesAllBookings(permissions: readonly Permission[]) { return can(permissions, 'facilities.read'); }
 function sendError(reply: { code: (status: number) => { send: (body: unknown) => unknown } }, requestId: string, status: number, code: string, message: string) { return reply.code(status).send({ error: { code, message, requestId } }); }
 function hasError(result: RouteResult): result is Extract<RouteResult, { error: string }> { return 'error' in result; }
 function isAssetCodeConflict(error: unknown): boolean {
@@ -107,7 +107,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     if (hasError(result)) return sendError(reply, request.id, result.error === 'NOT_FOUND' ? 404 : 422, result.error, result.error === 'NOT_FOUND' ? 'Asset not found.' : 'Asset stock is committed to requests or unresolved returns.');
     const rows = await sql`select id, name, asset_code, quantity, active from facilities_assets where id=${id}`; return { data: rows[0] };
   });
-  app.get('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request) => ({ data: isManager(request.currentUser.permissions) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
+  app.get('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request) => ({ data: seesAllBookings(request.currentUser.permissions) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
   app.post('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request, reply) => {
     const input = requestSchema.parse(request.body); const check = validateBookingTimes(input);
     if (!check.ok) return sendError(reply, request.id, 422, check.code, check.code === 'INVALID_BOOKING_TIME' ? 'Choose a future start and an end after it.' : 'Bookings may end no later than two calendar months from today.');

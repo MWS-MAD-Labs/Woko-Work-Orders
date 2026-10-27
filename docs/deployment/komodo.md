@@ -212,6 +212,16 @@ curl --fail https://woko.example.org/
 
 In Komodo, inspect the `migrate`, `api`, and `web` logs if deployment fails. Do not bypass a failed migration.
 
+### Send the permission list to Central
+
+Woko publishes its permission list to Central after each deploy (Access Standard AS-4). It is off by default. To turn it on:
+
+1. Create an API client in Central for the Woko application with the scopes `application_permissions:write` and `application_entitlements:read`.
+2. Add `CENTRAL_API_BASE_URL` and `CENTRAL_API_TOKEN` to the protected Stack environment. Use the protected variable mechanism from step 3 for the token.
+3. Add `COMPOSE_PROFILES=central` to the Stack environment.
+
+The one-shot `permissions` service then runs after `api` is healthy, retries while Central is not reachable, and fails the deployment when Central refuses the list. Add `permissions` to **Ignore services** next to `migrate`, since it exits after it finishes. The starting roles come from `role-presets.json` (see the README).
+
 ## 9. Configure automatic deployment from GitHub
 
 Use a Komodo **Procedure** so every successful webhook delivery runs a full Stack deployment, including image rebuilds and migrations.

@@ -1,0 +1,102 @@
+{
+  "application_id": "woko",
+  "roles": [
+    {
+      "key": "ADMINISTRATOR",
+      "label": "Administrator",
+      "permissions": [
+        "woko.use",
+        "work-order.create",
+        "work-order.read-all",
+        "work-order.operate-any",
+        "work-order.transition-any",
+        "work-order.approve",
+        "work-order.reopen",
+        "work-order.cancel",
+        "work-order.set-schedule",
+        "work-order.manage-participants",
+        "work-order.read-audit",
+        "work-order.be-reviewer",
+        "work-list.read",
+        "work-list.manage",
+        "facilities.request",
+        "facilities.read",
+        "facilities.manage",
+        "work-order.delete",
+        "settings.read",
+        "settings.manage",
+        "users.read",
+        "users.manage"
+      ],
+      "allows_employees": true,
+      "allows_students": false,
+      "allows_interns": false
+    },
+    {
+      "key": "FACILITIES_MANAGER",
+      "label": "Facilities Manager",
+      "permissions": [
+        "woko.use",
+        "work-order.create",
+        "work-order.read-all",
+        "work-order.operate-any",
+        "work-order.transition-any",
+        "work-order.approve",
+        "work-order.reopen",
+        "work-order.cancel",
+        "work-order.set-schedule",
+        "work-order.manage-participants",
+        "work-order.read-audit",
+        "work-order.be-reviewer",
+        "work-list.read",
+        "work-list.manage",
+        "facilities.request",
+        "facilities.read",
+        "facilities.manage",
+        "work-list.receive-digest",
+        "facilities.default-approver"
+      ],
+      "allows_employees": true,
+      "allows_students": false,
+      "allows_interns": false
+    },
+    {
+      "key": "PERSON_IN_CHARGE",
+      "label": "Person in Charge",
+      "permissions": [
+        "woko.use",
+        "work-order.create",
+        "work-order.be-pic",
+        "facilities.request"
+      ],
+      "allows_employees": true,
+      "allows_students": false,
+      "allows_interns": false
+    },
+    {
+      "key": "WORKER",
+      "label": "Worker",
+      "permissions": [
+        "woko.use",
+        "work-order.be-worker",
+        "work-list.be-worker",
+        "facilities.request"
+      ],
+      "allows_employees": true,
+      "allows_students": false,
+      "allows_interns": false
+    },
+    {
+      "key": "OVERSEER",
+      "label": "Overseer",
+      "permissions": [
+        "woko.use",
+        "work-order.be-overseer",
+        "facilities.request"
+      ],
+      "allows_employees": true,
+      "allows_students": false,
+      "allows_interns": false
+    }
+  ]
+}

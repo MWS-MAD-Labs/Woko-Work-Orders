@@ -13,7 +13,11 @@
     "db:migrate": "tsx src/database/migrate.ts",
     "db:seed": "tsx src/database/seed.ts",
     "notifications:preview": "tsx src/scripts/send-notification-previews.ts",
-    "test:integration": "npm run build -w @woko/domain && vitest run src/facilities-requests.integration.test.ts"
+    "test:integration": "npm run build -w @woko/domain && vitest run src/facilities-requests.integration.test.ts",
+    "permissions:sync": "tsx src/scripts/permissions-cli.ts sync",
+    "permissions:check": "tsx src/scripts/permissions-cli.ts check",
+    "presets:write": "tsx src/scripts/role-presets-cli.ts write",
+    "presets:check": "tsx src/scripts/role-presets-cli.ts check"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",

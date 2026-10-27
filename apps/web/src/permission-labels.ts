@@ -5,6 +5,11 @@ type Label = { name: string; help: string };
 
 export const permissionLabels: Record<Locale, Record<Permission, Label>> = {
   en: {
+    'woko.use': { name: 'Sign in to Woko', help: 'Needed for every other permission.' },
+    'work-list.read': { name: 'See all Routine Work', help: 'See every template and occurrence.' },
+    'facilities.read': { name: 'See all equipment bookings', help: 'See every booking, not only own.' },
+    'settings.read': { name: 'See organization settings', help: 'See locations and work settings.' },
+    'users.read': { name: 'See user access', help: 'See the list of users and what they may do.' },
     'work-order.create': { name: 'Create work orders', help: 'Start a new work order.' },
     'work-order.read-all': { name: 'See all work orders and reports', help: 'Open every work order, the organization-wide view, and the reports.' },
     'work-order.operate-any': { name: 'Act on any work order', help: 'Post progress, change condition, add evidence and procurement on a work order without being assigned to it.' },
@@ -30,6 +35,11 @@ export const permissionLabels: Record<Locale, Record<Permission, Label>> = {
     'users.manage': { name: 'Manage user access', help: 'Register people and change their permissions.' },
   },
   id: {
+    'woko.use': { name: 'Masuk ke Woko', help: 'Dibutuhkan oleh semua izin lain.' },
+    'work-list.read': { name: 'Melihat semua Pekerjaan Rutin', help: 'Melihat semua templat dan jadwal.' },
+    'facilities.read': { name: 'Melihat semua pemesanan peralatan', help: 'Melihat semua pemesanan, bukan hanya milik sendiri.' },
+    'settings.read': { name: 'Melihat pengaturan organisasi', help: 'Melihat lokasi dan pengaturan kerja.' },
+    'users.read': { name: 'Melihat akses pengguna', help: 'Melihat daftar pengguna dan izin mereka.' },
     'work-order.create': { name: 'Membuat work order', help: 'Memulai work order baru.' },
     'work-order.read-all': { name: 'Melihat semua work order dan laporan', help: 'Membuka semua work order, tampilan seluruh organisasi, dan laporan.' },
     'work-order.operate-any': { name: 'Bertindak di work order mana pun', help: 'Mencatat progres, mengubah kondisi, menambah bukti dan procurement tanpa ditugaskan.' },

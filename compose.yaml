@@ -58,6 +58,23 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Sends the permission list to Central after each deploy (Access Standard AS-4). Off unless the "central" profile is
+  # on (COMPOSE_PROFILES=central) and CENTRAL_API_BASE_URL and CENTRAL_API_TOKEN are set in .env.
+  permissions:
+    profiles: ["central"]
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: node apps/api/dist/scripts/permissions-cli.js sync --retries 5 --wait 10
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL}
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: "no"
+
   web:
     build:
       context: .

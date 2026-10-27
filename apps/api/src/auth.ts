@@ -76,7 +76,7 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
       preferredLocale: user.preferred_locale,
       sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     };
-    return;
+    return requireWokoAccess(request, reply);
   }
 
   if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
@@ -112,6 +112,14 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     preferredLocale: user.preferred_locale,
     sessionExpiresAt: user.expires_at,
   };
+  return requireWokoAccess(request, reply);
+}
+
+// Access Standard AS-3: `woko.use` is the right to be in the app at all. Without it nothing else counts.
+async function requireWokoAccess(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!can(request.currentUser.permissions, 'woko.use')) {
+    await reply.code(403).send({ error: { code: 'NO_ACCESS', message: 'You do not have access to Woko.', requestId: request.id } });
+  }
 }
 
 const forbidden = (request: FastifyRequest, reply: FastifyReply) =>
