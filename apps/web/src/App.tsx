@@ -3,6 +3,7 @@ import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, Chevro
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
+import { HUB_SESSION_REQUIRED, claimHubRedirect } from './hub-redirect';
 import { translator, type Locale } from './i18n';
 import { ConditionActionForm, CreateWorkOrderForm, DueDateActionForm, EvidencePanel, InternalProcurementPanel, ParticipantsActionForm, ProposalDecisionForm, VendorActionForm, WorkflowActionForm } from './WorkOrderForms';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
@@ -85,6 +86,13 @@ function localizedEnum(value: string, locale: Locale): string {
   };
   if (locale === 'id') return idLabels[value] ?? value.replaceAll('_', ' ').toLowerCase();
   return value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+// With the Hub, a missing session is restored at the Hub and the person comes straight back. True when that has started.
+function goToHub(caught: ApiError): boolean {
+  if (caught.code !== HUB_SESSION_REQUIRED || !claimHubRedirect(window.sessionStorage)) return false;
+  window.location.replace(authLoginUrl(`${window.location.pathname}${window.location.search}`));
+  return true;
 }
 
 function LoginScreen({ error, locale }: { error?: string; locale: Locale }) {
@@ -293,7 +301,7 @@ export default function App() {
     } catch (caught) {
       if (controller.signal.aborted) return;
       setSelected(null);
-      if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+      if (caught instanceof ApiError && caught.status === 401 && !goToHub(caught)) setAuthState('unauthenticated');
     }
   }, []);
 
@@ -308,7 +316,7 @@ export default function App() {
         setSelected(detail);
       }
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+      if (caught instanceof ApiError && caught.status === 401 && !goToHub(caught)) setAuthState('unauthenticated');
     }
   };
 
@@ -325,7 +333,7 @@ export default function App() {
         await syncFromUrl();
       })
       .catch((caught) => {
-        if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+        if (caught instanceof ApiError && caught.status === 401) { if (!goToHub(caught)) setAuthState('unauthenticated'); }
         else {
           const noAccess = caught instanceof ApiError && caught.code === 'NO_ACCESS';
           setStartupError(noAccess ? (locale === 'id' ? 'Anda belum memiliki akses ke Woko. Minta akses melalui admin Hub.' : 'You do not have access to Woko yet. Ask a Hub admin to give you access.') : caught instanceof Error ? caught.message : (locale === 'id' ? 'Aplikasi tidak dapat dimuat.' : 'The application could not be loaded.'));
@@ -388,7 +396,15 @@ export default function App() {
     // with the Hub the session is shared, so signing out ends at the Hub
     if (result?.redirectTo) window.location.assign(result.redirectTo);
   };
-  const loginError = new URLSearchParams(window.location.search).get('error') ?? undefined;
+  // Read once, then taken out of the address so an old failure does not stay on the screen.
+  const [loginError] = useState(() => new URLSearchParams(window.location.search).get('error') ?? undefined);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('error')) return;
+    params.delete('error');
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, []);
   if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>{locale === 'id' ? 'Memeriksa sesi Anda…' : 'Checking your session…'}</p></section></main>;
   if (authState === 'error') return <StartupErrorScreen message={startupError} locale={locale} onRetry={() => window.location.reload()} />;
   if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} locale={locale} />;

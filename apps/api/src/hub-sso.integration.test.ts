@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import type { AccessResult } from 'mws-central-auth/access';
 import { buildApp } from './app.js';
+import { config } from './config.js';
 import { sql } from './database/client.js';
 import { syncEntitlements, type EntitlementRow } from './entitlement-sync.js';
 import { useHubAccess, type HubAccess } from './hub-access.js';
@@ -30,7 +31,9 @@ const fakeHub: HubAccess = {
 const allowed = (personId: string, permissions: readonly string[] = permissionBundles.worker): AccessResult => ({
   status: 'allowed', personId, role: 'WORKER', permissions: [...permissions], ignored: [], entitlementId: `e-${personId}`, version: 1,
 });
-const as = (personId: string, email: string) => ({ cookie: `hub_at=${encodeURIComponent(`${personId}|${email}`)}`, origin: 'http://localhost:5173' });
+// Whatever APP_BASE_URL the environment has, so the tests do not depend on a local .env.
+const appOrigin = new URL(config.APP_BASE_URL).origin;
+const as = (personId: string, email: string) => ({ cookie: `hub_at=${encodeURIComponent(`${personId}|${email}`)}`, origin: appOrigin });
 const app = await buildApp({ logger: false });
 useHubAccess(fakeHub);
 
@@ -52,6 +55,8 @@ describe('signing in through the Hub', () => {
   it('turns away a request without the Hub cookie', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/me' });
     expect(response.statusCode).toBe(401);
+    // The web app goes to the Hub on this code instead of showing a sign-in screen.
+    expect(response.json().error.code).toBe('HUB_SESSION_REQUIRED');
   });
 
   it('makes the user the first time, with the permissions of the entitlement and no role', async () => {
@@ -136,9 +141,9 @@ describe('signing in through the Hub', () => {
     expect(stillNobody.headers.location).toBe('https://hub.example.org/');
 
     const signedIn = await app.inject({ method: 'GET', url: '/api/v1/auth/login?redirect=%2Fwork', headers: { cookie: as('p', 'hubtest-x@millennia21.id').cookie } });
-    expect(signedIn.headers.location).toBe('http://localhost:5173/work');
+    expect(signedIn.headers.location).toBe(`${appOrigin}/work`);
 
-    const out = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { origin: 'http://localhost:5173' } });
+    const out = await app.inject({ method: 'POST', url: '/api/v1/auth/logout', headers: { origin: appOrigin } });
     expect(out.json().data).toEqual({ loggedOut: true, redirectTo: 'https://hub.example.org/' });
   });
 });

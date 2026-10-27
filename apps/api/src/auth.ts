@@ -132,7 +132,7 @@ async function authenticateWithHub(request: FastifyRequest, reply: FastifyReply)
   }
   const access = hubAccess();
   const claims = await access.claims(request.headers.cookie);
-  if (!claims) return reply.code(401).send({ error: { code: 'AUTHENTICATION_REQUIRED', message: 'Sign in through the Hub.', requestId: request.id } });
+  if (!claims) return reply.code(401).send({ error: { code: 'HUB_SESSION_REQUIRED', message: 'Sign in through the Hub.', requestId: request.id } });
   const result = await access.resolve(claims.sub);
   if (result.status === 'unavailable') {
     request.log.warn({ error: result.error instanceof Error ? result.error.message : 'unknown' }, 'Central could not be asked for the entitlement');
