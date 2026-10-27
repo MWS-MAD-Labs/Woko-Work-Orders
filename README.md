@@ -111,6 +111,10 @@ With `AUTH_MODE=google`, register `http://localhost:5173/api/v1/auth/callback` a
 - **`EMFILE: too many open files, watch ...` when starting Vite.** The machine ran out of inotify instances, usually because many dev servers are running. Stop some, or raise the limit: `sudo sysctl fs.inotify.max_user_instances=1024` (add `fs.inotify.max_user_instances=1024` to `/etc/sysctl.d/99-inotify.conf` to keep it after a reboot).
 - **The API exits with a `ZodError` about a `GOOGLE_*` key.** An empty value such as `GOOGLE_OAUTH_CLIENT_ID=` is rejected. Remove or comment out the key.
 
+## Access model
+
+Woko follows the MWS Access Standard (`mws-data-center/docs/access-standard.md`, v1.0). The code checks permissions, never role names, and each API route declares the permission it needs. The permission list lives in `packages/domain/src/permissions.ts`. Today the permissions are kept per user in Woko (`user_permissions`) and granted from the User Access screen; moving login to Hub and the permissions to Central is tracked in `mws-data-center/docs/access-conformance.md`. Known gaps: key names still use `domain:action` instead of `domain.action` (AS-3), and there is no `permissions:sync` yet (AS-4).
+
 ## Verification
 
 Run the release checks before merging or deploying:
