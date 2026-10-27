@@ -19,7 +19,8 @@
     "permissions:check": "npm run permissions:check -w @woko/api --",
     "presets:write": "npm run presets:write -w @woko/api --",
     "presets:check": "npm run presets:check -w @woko/api --",
-    "access:check": "npm run build -w @woko/domain && node --import tsx node_modules/mws-central-auth/dist/access/bin.js check"
+    "access:check": "npm run build -w @woko/domain && node --import tsx node_modules/mws-central-auth/dist/access/bin.js check",
+    "central:sync": "npm run central:sync -w @woko/api --"
   },
   "devDependencies": {
     "concurrently": "^9.2.0",
@@ -28,5 +29,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   }
 }

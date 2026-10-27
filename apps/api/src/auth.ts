@@ -3,6 +3,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { can, canAny, isPermission, type Permission } from '@woko/domain';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from './config.js';
+import { AccountConflictError, hubAccess, provisionHubUser, type LocalHubUser } from './hub-access.js';
+import type { AccessResult } from 'mws-central-auth/access';
 import { sql } from './database/client.js';
 
 export interface CurrentUser {
@@ -79,6 +81,8 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     return requireWokoAccess(request, reply);
   }
 
+  if (config.AUTH_MODE === 'hub') return authenticateWithHub(request, reply);
+
   if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
     const origin = request.headers.origin;
     if (!origin || new URL(origin).origin !== new URL(config.APP_BASE_URL).origin) {
@@ -115,10 +119,61 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
   return requireWokoAccess(request, reply);
 }
 
+const provisioned = new WeakMap<AccessResult, LocalHubUser>();
+
+// The Hub's shared session says who it is, Central's entitlement says what they may do (AS-10, AS-11). The answer is
+// kept for a minute by the resolver, and the local user for as long as that answer.
+async function authenticateWithHub(request: FastifyRequest, reply: FastifyReply) {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    const origin = request.headers.origin;
+    if (!origin || new URL(origin).origin !== new URL(config.APP_BASE_URL).origin) {
+      return reply.code(403).send({ error: { code: 'INVALID_ORIGIN', message: 'The request origin is not allowed.', requestId: request.id } });
+    }
+  }
+  const access = hubAccess();
+  const claims = await access.claims(request.headers.cookie);
+  if (!claims) return reply.code(401).send({ error: { code: 'AUTHENTICATION_REQUIRED', message: 'Sign in through the Hub.', requestId: request.id } });
+  const result = await access.resolve(claims.sub);
+  if (result.status === 'unavailable') {
+    request.log.warn({ error: result.error instanceof Error ? result.error.message : 'unknown' }, 'Central could not be asked for the entitlement');
+    return reply.code(503).send({ error: { code: 'CENTRAL_UNAVAILABLE', message: 'Access could not be checked right now. Try again in a moment.', requestId: request.id } });
+  }
+  if (result.status === 'denied') {
+    return reply.code(403).send({ error: { code: 'NO_ACCESS', message: 'You do not have access to Woko.', details: { reason: result.reason }, requestId: request.id } });
+  }
+  let user = provisioned.get(result);
+  if (!user) {
+    try {
+      user = await provisionHubUser({ personId: claims.sub, email: claims.email }, result.permissions);
+    } catch (error) {
+      if (error instanceof AccountConflictError) return reply.code(409).send({ error: { code: 'ACCOUNT_CONFLICT', message: error.message, requestId: request.id } });
+      throw error;
+    }
+    provisioned.set(result, user);
+  }
+  request.currentUser = {
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    profilePhotoUrl: user.profilePhotoUrl,
+    permissions: result.permissions.filter(isPermission),
+    preferredLocale: user.preferredLocale,
+    sessionExpiresAt: new Date(claims.exp * 1000).toISOString(),
+  };
+  return requireWokoAccess(request, reply);
+}
+
 // Access Standard AS-3: `woko.use` is the right to be in the app at all. Without it nothing else counts.
 async function requireWokoAccess(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   if (!can(request.currentUser.permissions, 'woko.use')) {
     await reply.code(403).send({ error: { code: 'NO_ACCESS', message: 'You do not have access to Woko.', requestId: request.id } });
+  }
+}
+
+// In hub mode who may do what is decided in Central, so the screens that grant access here are read only (AS-1).
+export async function refuseWhenAccessIsManagedByCentral(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (config.AUTH_MODE === 'hub') {
+    await reply.code(409).send({ error: { code: 'MANAGED_BY_CENTRAL', message: 'Who may use Woko is set in Central. Change it there.', requestId: request.id } });
   }
 }
 

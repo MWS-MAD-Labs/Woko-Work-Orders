@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { can, canAny, canTransitionProcurement, type Permission, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
 import { z } from 'zod';
+import { config } from './config.js';
 import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 import { createUserDriveShortcut, deleteDriveFile, extractDriveFileId, linkExistingDriveFile, provisionWorkOrderFolder, rollbackUserDriveShortcut, shareDriveFileWithEditors, uploadDriveFile, type DriveSubfolderMap } from './drive.js';
@@ -271,7 +272,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (!rows.length) await reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
   });
 
-  app.get('/me', async (request) => ({ data: request.currentUser }));
+  app.get('/me', async (request) => ({ data: { ...request.currentUser, authMode: config.AUTH_MODE } }));
 
   app.get('/reference-data', async () => {
     const [users, campuses, buildings, locationOptions, workOptions, periods] = await Promise.all([

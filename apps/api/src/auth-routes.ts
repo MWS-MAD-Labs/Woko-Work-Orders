@@ -6,6 +6,7 @@ import {
   authenticate,
   oauthClient,
   randomToken,
+  refuseWhenAccessIsManagedByCentral,
   requirePermission,
   safeHashEquals,
   sessionCookieName,
@@ -14,6 +15,7 @@ import {
   sha256,
 } from "./auth.js";
 import { config } from "./config.js";
+import { hubAccess } from "./hub-access.js";
 import { sql } from "./database/client.js";
 
 const googleIssuers = new Set([
@@ -46,6 +48,16 @@ export async function authRoutes(app: FastifyInstance) {
     const { redirect } = z
       .object({ redirect: redirectPathSchema.optional() })
       .parse(request.query);
+    if (config.AUTH_MODE === "hub") {
+      // The Hub is where people sign in. Come back here with the Hub's cookie, or end up on the Hub front page.
+      const access = hubAccess();
+      const target = `${config.APP_BASE_URL}${redirect ?? "/"}`;
+      if (await access.claims(request.headers.cookie)) return reply.redirect(target);
+      const { restored } = z.object({ restored: z.string().optional() }).parse(request.query);
+      if (restored) return reply.redirect(access.homeUrl());
+      const back = `${config.APP_BASE_URL}/api/v1/auth/login?redirect=${encodeURIComponent(redirect ?? "/")}`;
+      return reply.redirect(access.restoreUrl(back));
+    }
     if (config.AUTH_MODE !== "google")
       return reply
         .code(503)
@@ -281,6 +293,8 @@ export async function authRoutes(app: FastifyInstance) {
   );
 
   app.post("/auth/logout", async (request, reply) => {
+    // Signing out of the Hub signs the person out of every app; Woko has no session of its own to end.
+    if (config.AUTH_MODE === "hub") return { data: { loggedOut: true, redirectTo: hubAccess().homeUrl() } };
     const token = request.cookies[sessionCookieName];
     if (token)
       await sql`update user_sessions set revoked_at = now() where token_hash = ${sha256(token)} and revoked_at is null`;
@@ -305,7 +319,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post(
     "/admin/users",
-    { preHandler: [authenticate, requirePermission("users.manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage"), refuseWhenAccessIsManagedByCentral] },
     async (request, reply) => {
       const input = z
         .object({
@@ -364,7 +378,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post(
     "/admin/users/:id/resend-invitation",
-    { preHandler: [authenticate, requirePermission("users.manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage"), refuseWhenAccessIsManagedByCentral] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const result = await sql.begin(async (transaction) => {
@@ -431,7 +445,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.patch(
     "/admin/users/:id",
-    { preHandler: [authenticate, requirePermission("users.manage")] },
+    { preHandler: [authenticate, requirePermission("users.manage"), refuseWhenAccessIsManagedByCentral] },
     async (request, reply) => {
       const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
       const input = z
