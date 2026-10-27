@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { rolesCan, type Role } from '@woko/domain';
+import { can, type Permission } from '@woko/domain';
 import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
@@ -38,7 +38,7 @@ export function validateBookingTimes({ startsAt, endsAt, now = new Date() }: Boo
   if (dateInSchoolTimeZone(start) > bookingWindowEnd(now) || dateInSchoolTimeZone(end) > bookingWindowEnd(now)) return { ok: false, code: 'BOOKING_WINDOW_EXCEEDED' };
   return { ok: true };
 }
-function isManager(roles: readonly Role[]) { return rolesCan(roles, 'facilities:manage'); }
+function isManager(permissions: readonly Permission[]) { return can(permissions, 'facilities:manage'); }
 function sendError(reply: { code: (status: number) => { send: (body: unknown) => unknown } }, requestId: string, status: number, code: string, message: string) { return reply.code(status).send({ error: { code, message, requestId } }); }
 function hasError(result: RouteResult): result is Extract<RouteResult, { error: string }> { return 'error' in result; }
 function isAssetCodeConflict(error: unknown): boolean {
@@ -57,7 +57,7 @@ const requestSelect = sql`
 
 export async function facilitiesRequestRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.get('/facilities/assets', async () => ({ data: await sql`select id, name, asset_code, quantity, active from facilities_assets order by name` }));
+  app.get('/facilities/assets', { preHandler: requirePermission('facilities:request') }, async () => ({ data: await sql`select id, name, asset_code, quantity, active from facilities_assets order by name` }));
 
   app.post('/facilities/assets', { preHandler: requirePermission('facilities:manage') }, async (request, reply) => {
     const input = assetInputSchema.parse(request.body);
@@ -107,12 +107,12 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     if (hasError(result)) return sendError(reply, request.id, result.error === 'NOT_FOUND' ? 404 : 422, result.error, result.error === 'NOT_FOUND' ? 'Asset not found.' : 'Asset stock is committed to requests or unresolved returns.');
     const rows = await sql`select id, name, asset_code, quantity, active from facilities_assets where id=${id}`; return { data: rows[0] };
   });
-  app.get('/facilities/requests', async (request) => ({ data: isManager(request.currentUser.roles) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
-  app.post('/facilities/requests', async (request, reply) => {
+  app.get('/facilities/requests', { preHandler: requirePermission('facilities:request') }, async (request) => ({ data: isManager(request.currentUser.permissions) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
+  app.post('/facilities/requests', { preHandler: requirePermission('facilities:request') }, async (request, reply) => {
     const input = requestSchema.parse(request.body); const check = validateBookingTimes(input);
     if (!check.ok) return sendError(reply, request.id, 422, check.code, check.code === 'INVALID_BOOKING_TIME' ? 'Choose a future start and an end after it.' : 'Bookings may end no later than two calendar months from today.');
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const managers = await tx<Array<{ id: string }>>`select u.id from users u where u.active and exists (select 1 from user_roles role where role.user_id = u.id and role.role in ('ADMINISTRATOR', 'FACILITIES_MANAGER')) order by case when exists (select 1 from user_roles role where role.user_id = u.id and role.role = 'FACILITIES_MANAGER') then 0 else 1 end, u.id limit 1 for share`;
+      const managers = await tx<Array<{ id: string }>>`select u.id from users u where u.active and exists (select 1 from user_permissions up where up.user_id = u.id and up.permission = 'facilities:manage') order by case when exists (select 1 from user_permissions up where up.user_id = u.id and up.permission = 'facilities:default-approver') then 0 else 1 end, u.id limit 1 for share`;
       const manager = managers[0]; if (!manager) return { error: 'NO_ACTIVE_MANAGER' };
       const assets = await tx<Array<{ id: string; name: string; quantity: number }>>`select id,name,quantity from facilities_assets where id=any(${input.items.map((item) => item.assetId)}::uuid[]) and active=true order by id for update`;
       if (assets.length !== input.items.length) return { error: 'INVALID_ASSET' };
@@ -138,7 +138,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     });
     if (hasError(result)) return sendError(reply,request.id,result.error === 'NOT_FOUND'?404:422,result.error,result.error === 'BOOKING_EXPIRED'?'Expired bookings cannot be approved.':'This request cannot be decided now.'); return { data:result };
   });
-  app.post('/facilities/requests/:id/cancel', async (request, reply) => {
+  app.post('/facilities/requests/:id/cancel', { preHandler: requirePermission('facilities:request') }, async (request, reply) => {
     const { id } = idSchema.parse(request.params);
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
       const rows = await tx<Array<{ status: string; requester_id: string }>>`select status, requester_id from facilities_requests where id = ${id} for update`;

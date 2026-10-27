@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { rolesCan, rolesWithPermission, type Role } from '@woko/domain';
-import { authenticate, requirePermission } from './auth.js';
+import { can, type Permission } from '@woko/domain';
+import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
 import { generateWorkListOccurrences, localDateInTimeZone } from './background.js';
 import { sql } from './database/client.js';
 import { prepareEvidenceUpload } from './evidence.js';
@@ -14,12 +14,12 @@ const resolveSchema = z.object({ status: z.enum(['NOT_APPLICABLE', 'ISSUE_FOUND'
 const completionNoteSchema = z.string().trim().max(2_000).default('');
 
 
-function manager(roles: readonly Role[]) { return rolesCan(roles, 'work-list:manage'); }
-async function occurrenceAccess(occurrenceId: string, userId: string, roles: readonly Role[]): Promise<'ALLOWED' | 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND'> {
+function manager(permissions: readonly Permission[]) { return can(permissions, 'work-list:manage'); }
+async function occurrenceAccess(occurrenceId: string, userId: string, permissions: readonly Permission[]): Promise<'ALLOWED' | 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND'> {
   const rows = await sql<Array<{ status: string; assigned: boolean }>>`select status, ${userId} = any(worker_ids) as assigned from work_list_occurrences where id=${occurrenceId}`;
   const occurrence = rows[0];
   if (!occurrence) return 'NOT_FOUND';
-  if (manager(roles)) return 'ALLOWED';
+  if (manager(permissions)) return 'ALLOWED';
   if (!occurrence.assigned) return 'FORBIDDEN';
   return occurrence.status === 'MISSED' ? 'MISSED' : 'ALLOWED';
 }
@@ -30,7 +30,7 @@ function accessError(access: 'MISSED' | 'FORBIDDEN' | 'NOT_FOUND', requestId: st
   return { status: 403, body: { error: { code: 'FORBIDDEN', message: 'You are no longer assigned to this Routine Work.', requestId } } };
 }
 async function ensureWorkers(workerIds: string[]) {
-  const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_roles ur on ur.user_id = u.id where u.active and ur.role = any(${rolesWithPermission('work-list:be-worker')}::app_role[]) and u.id = any(${workerIds}::uuid[])`;
+  const rows = await sql<Array<{ id: string }>>`select distinct u.id from users u join user_permissions up on up.user_id = u.id where u.active and up.permission = 'work-list:be-worker' and u.id = any(${workerIds}::uuid[])`;
   return rows.length === workerIds.length;
 }
 
@@ -81,7 +81,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: { updated: true } };
   });
 
-  app.get('/work-lists', async (request) => {
+  app.get('/work-lists', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request) => {
     const localDate = localDateInTimeZone();
     const query = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(200).default(200) }).parse(request.query);
     const rows = await sql`
@@ -91,28 +91,28 @@ export async function workListRoutes(app: FastifyInstance) {
         coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id and i.required), 0) required_count,
         coalesce((select count(*)::int from work_list_occurrence_items i where i.occurrence_id=o.id), 0) item_count,
         coalesce((select json_agg(json_build_object('id', preview.id, 'title', preview.title, 'instructions', preview.instructions, 'required', preview.required, 'sort_order', preview.sort_order, 'status', preview.status, 'note', preview.note, 'resolved_by', preview.resolved_by) order by preview.sort_order) from (select i.id, i.title, i.instructions, i.required, i.sort_order, i.status, i.note, u.full_name as resolved_by from work_list_occurrence_items i left join users u on u.id=i.resolved_by where i.occurrence_id=o.id order by i.sort_order limit 3) preview), '[]'::json) preview_items
-      from work_list_occurrences o where ${manager(request.currentUser.roles) ? sql`true` : sql`${request.currentUser.id} = any(o.worker_ids) and o.status not in ('OVERDUE', 'MISSED') and ((o.recurrence='DAILY' and o.period_date=${localDate}::date) or (o.recurrence='WEEKLY' and date_trunc('week', o.period_date::timestamp)=date_trunc('week', ${localDate}::date::timestamp)) or (o.recurrence='MONTHLY' and date_trunc('month', o.period_date::timestamp)=date_trunc('month', ${localDate}::date::timestamp)) )`}
+      from work_list_occurrences o where ${manager(request.currentUser.permissions) ? sql`true` : sql`${request.currentUser.id} = any(o.worker_ids) and o.status not in ('OVERDUE', 'MISSED') and ((o.recurrence='DAILY' and o.period_date=${localDate}::date) or (o.recurrence='WEEKLY' and date_trunc('week', o.period_date::timestamp)=date_trunc('week', ${localDate}::date::timestamp)) or (o.recurrence='MONTHLY' and date_trunc('month', o.period_date::timestamp)=date_trunc('month', ${localDate}::date::timestamp)) )`}
       order by case when o.status='OPEN' then 0 when o.status='MISSED' then 1 else 2 end, o.due_at desc, o.id
       limit ${query.limit + 1} offset ${query.offset}`;
     const hasMore = rows.length > query.limit;
     return { data: rows.slice(0, query.limit), meta: { limit: query.limit, offset: query.offset, hasMore, nextOffset: hasMore ? query.offset + query.limit : null } };
   });
 
-  app.get('/work-lists/:id', async (request, reply) => {
+  app.get('/work-lists/:id', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { id: string }).id);
-    const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.roles);
+    const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
     const occurrences = await sql`select o.*, coalesce((select json_agg(json_build_object('id', i.id, 'title', i.title, 'instructions', i.instructions, 'required', i.required, 'sort_order', i.sort_order, 'status', i.status, 'note', i.note, 'resolved_by', u.full_name, 'resolved_at', i.resolved_at::text, 'evidence', coalesce((select json_agg(json_build_object('id', e.id, 'drive_url', '/work-lists/evidence/' || e.id, 'file_name', e.file_name, 'uploaded_by', eu.full_name, 'created_at', e.created_at::text) order by e.created_at) from work_list_evidence e join users eu on eu.id=e.uploaded_by where e.occurrence_item_id=i.id), '[]'::json)) order by i.sort_order) from work_list_occurrence_items i left join users u on u.id=i.resolved_by where i.occurrence_id=o.id), '[]'::json) items, coalesce((select json_agg(json_build_object('id', e.id, 'drive_url', '/work-lists/evidence/' || e.id, 'file_name', e.file_name, 'uploaded_by', u.full_name, 'created_at', e.created_at::text)) from work_list_evidence e join users u on u.id=e.uploaded_by where e.occurrence_id=o.id and e.occurrence_item_id is null), '[]'::json) evidence from work_list_occurrences o where o.id=${occurrenceId}`;
     if (!occurrences[0]) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Routine Work not found.', requestId: request.id } });
     return { data: occurrences[0] };
   });
 
-  app.get('/work-lists/evidence/:evidenceId', async (request, reply) => {
+  app.get('/work-lists/evidence/:evidenceId', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
     const evidenceId = id.parse((request.params as { evidenceId: string }).evidenceId);
     const rows = await sql<Array<{ occurrence_id: string; drive_file_id: string; file_name: string; mime_type: string }>>`select occurrence_id, drive_file_id, file_name, mime_type from work_list_evidence where id=${evidenceId}`;
     const evidence = rows[0];
     if (!evidence) return reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Routine Work evidence not found.', requestId: request.id } });
-    const access = await occurrenceAccess(evidence.occurrence_id, request.currentUser.id, request.currentUser.roles);
+    const access = await occurrenceAccess(evidence.occurrence_id, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
     const safeName = evidence.file_name.replaceAll(/[\r\n"]/g, '_');
     reply.header('Content-Type', evidence.mime_type);
@@ -121,14 +121,14 @@ export async function workListRoutes(app: FastifyInstance) {
     return reply.send(await downloadDriveFile(evidence.drive_file_id));
   });
 
-  app.patch('/work-lists/:occurrenceId/items/:itemId', async (request, reply) => {
+  app.patch('/work-lists/:occurrenceId/items/:itemId', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { occurrenceId: string }).occurrenceId); const itemId = id.parse((request.params as { itemId: string }).itemId); const input = resolveSchema.parse(request.body);
-    const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.roles);
+    const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
     const result = await sql.begin(async (tx) => {
       const occurrence = await tx<Array<{ version: number; status: string; due_at: string; worker_ids: string[] }>>`select version, status, due_at::text, worker_ids from work_list_occurrences where id=${occurrenceId} for update`;
       if (!occurrence[0]) return { error: 'NOT_FOUND' } as const;
-      if (!manager(request.currentUser.roles) && !occurrence[0].worker_ids.includes(request.currentUser.id)) return { error: 'FORBIDDEN' } as const;
+      if (!manager(request.currentUser.permissions) && !occurrence[0].worker_ids.includes(request.currentUser.id)) return { error: 'FORBIDDEN' } as const;
       if (['OPEN', 'OVERDUE'].includes(occurrence[0].status) && new Date(occurrence[0].due_at) < new Date()) {
         await tx`update work_list_occurrences set status='MISSED', version=version+1, updated_at=now() where id=${occurrenceId}`;
         return { error: 'MISSED' } as const;
@@ -151,10 +151,10 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-lists/:occurrenceId/items/:itemId/complete', async (request, reply) => {
+  app.post('/work-lists/:occurrenceId/items/:itemId/complete', { preHandler: requireAnyPermission(['work-list:manage', 'work-list:be-worker']) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { occurrenceId: string }).occurrenceId);
     const itemId = id.parse((request.params as { itemId: string }).itemId);
-    const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.roles);
+    const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
     const items = await sql`select 1 from work_list_occurrence_items where id=${itemId} and occurrence_id=${occurrenceId} and status is null`;
     if (!items[0]) return reply.code(409).send({ error: { code: 'ITEM_UNAVAILABLE', message: 'This checklist item has already been updated.', requestId: request.id } });
@@ -184,7 +184,7 @@ export async function workListRoutes(app: FastifyInstance) {
         const occurrences = await tx<Array<{ status: string; worker_ids: string[]; due_at: string }>>`select status, worker_ids, due_at::text from work_list_occurrences where id=${occurrenceId} for update`;
         const occurrence = occurrences[0];
         if (!occurrence) return { error: 'NOT_FOUND' } as const;
-        if (!manager(request.currentUser.roles) && !occurrence.worker_ids.includes(request.currentUser.id)) return { error: 'FORBIDDEN' } as const;
+        if (!manager(request.currentUser.permissions) && !occurrence.worker_ids.includes(request.currentUser.id)) return { error: 'FORBIDDEN' } as const;
         if (['OPEN', 'OVERDUE'].includes(occurrence.status) && new Date(occurrence.due_at) < new Date()) {
           await tx`update work_list_occurrences set status='MISSED', version=version+1, updated_at=now() where id=${occurrenceId}`;
           return { error: 'OCCURRENCE_CLOSED' } as const;

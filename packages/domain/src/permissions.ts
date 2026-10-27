@@ -18,6 +18,7 @@ export const permissions = [
   'work-list:manage',
   'work-list:be-worker',
   'work-list:receive-digest',
+  'facilities:request',
   'facilities:manage',
   'facilities:default-approver',
   'settings:manage',
@@ -30,7 +31,7 @@ export const permissionGroups: ReadonlyArray<{ key: string; permissions: readonl
   { key: 'workOrders', permissions: ['work-order:create', 'work-order:read-all', 'work-order:operate-any', 'work-order:transition-any', 'work-order:approve', 'work-order:reopen', 'work-order:cancel', 'work-order:set-schedule', 'work-order:manage-participants', 'work-order:read-audit', 'work-order:delete'] },
   { key: 'participation', permissions: ['work-order:be-pic', 'work-order:be-worker', 'work-order:be-reviewer', 'work-order:be-overseer'] },
   { key: 'routineWork', permissions: ['work-list:manage', 'work-list:be-worker', 'work-list:receive-digest'] },
-  { key: 'facilities', permissions: ['facilities:manage', 'facilities:default-approver'] },
+  { key: 'facilities', permissions: ['facilities:request', 'facilities:manage', 'facilities:default-approver'] },
   { key: 'administration', permissions: ['settings:manage', 'users:manage'] },
 ];
 
@@ -47,6 +48,7 @@ const managerPermissions = [
   'work-order:read-audit',
   'work-order:be-reviewer',
   'work-list:manage',
+  'facilities:request',
   'facilities:manage',
 ] as const satisfies readonly Permission[];
 
@@ -55,9 +57,9 @@ const managerPermissions = [
 export const permissionBundles = {
   administrator: [...managerPermissions, 'work-order:delete', 'settings:manage', 'users:manage'],
   facilitiesManager: [...managerPermissions, 'work-list:receive-digest', 'facilities:default-approver'],
-  personInCharge: ['work-order:create', 'work-order:be-pic'],
-  worker: ['work-order:be-worker', 'work-list:be-worker'],
-  overseer: ['work-order:be-overseer'],
+  personInCharge: ['work-order:create', 'work-order:be-pic', 'facilities:request'],
+  worker: ['work-order:be-worker', 'work-list:be-worker', 'facilities:request'],
+  overseer: ['work-order:be-overseer', 'facilities:request'],
 } as const satisfies Record<string, readonly Permission[]>;
 export type PermissionBundle = keyof typeof permissionBundles;
 

@@ -30,3 +30,8 @@ join (
     ('OVERSEER', 'work-order:be-overseer')
 ) as p(role, permission) on p.role = ur.role::text
 on conflict do nothing;
+
+-- Anyone could borrow equipment, so everyone keeps that.
+insert into user_permissions (user_id, permission)
+select id, 'facilities:request' from users
+on conflict do nothing;

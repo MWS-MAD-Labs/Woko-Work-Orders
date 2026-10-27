@@ -1,10 +1,19 @@
 import type { FastifyInstance } from 'fastify';
-import { can, rolesCan, rolesWithPermission, canTransitionProcurement, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type Role, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
+import { can, canTransitionProcurement, type Permission, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
 import { z } from 'zod';
-import { authenticate, requirePermission } from './auth.js';
+import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 import { createUserDriveShortcut, deleteDriveFile, extractDriveFileId, linkExistingDriveFile, provisionWorkOrderFolder, rollbackUserDriveShortcut, shareDriveFileWithEditors, uploadDriveFile, type DriveSubfolderMap } from './drive.js';
 import { isCompletionPhoto, prepareEvidenceUpload, validateLinkedDriveFile } from './evidence.js';
+
+// Who may reach a work-order route at all. Whether the person belongs to that particular work order is checked inside.
+const viewWorkOrders = ['work-order:read-all', 'work-order:operate-any', 'work-order:be-pic', 'work-order:be-worker', 'work-order:be-reviewer', 'work-order:be-overseer'] as const;
+const discussWorkOrder = viewWorkOrders;
+const addEvidence = ['work-order:operate-any', 'work-order:be-pic', 'work-order:be-worker'] as const;
+const actAsPic = ['work-order:operate-any', 'work-order:be-pic'] as const;
+const recordProgress = ['work-order:operate-any', 'work-order:be-pic', 'work-order:be-worker'] as const;
+const changeParticipants = ['work-order:manage-participants', 'work-order:be-pic', 'work-order:be-reviewer'] as const;
+const moveStage = ['work-order:transition-any', 'work-order:approve', 'work-order:operate-any', 'work-order:be-pic'] as const;
 
 const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
 
@@ -96,8 +105,8 @@ interface WorkOrderRow {
   updated_at: string;
 }
 
-export function resolveWorkOrderScope(roles: readonly Role[], requestedScope: 'all' | 'mine'): 'all' | 'mine' {
-  return rolesCan(roles, 'work-order:read-all') ? requestedScope : 'mine';
+export function resolveWorkOrderScope(permissions: readonly Permission[], requestedScope: 'all' | 'mine'): 'all' | 'mine' {
+  return can(permissions, 'work-order:read-all') ? requestedScope : 'mine';
 }
 
 export function canDecideProposal(approverId: string, picIds: readonly string[]): boolean {
@@ -146,17 +155,18 @@ async function shareWorkOrderAttachmentsWithEditors(workOrderId: string): Promis
   for (const attachment of attachments) await shareDriveFileWithEditors(attachment.file_id, participantEmails);
 }
 
-function participantsHaveEligibleRoles(participants: Array<{ id: string; roles: Role[] }>, input: { assigneeIds: string[]; workerIds: string[]; reviewerId?: string | null; overseerIds: string[] }): boolean {
-  const rolesByUser = new Map(participants.map((participant) => [participant.id, participant.roles]));
-  const picsValid = input.assigneeIds.every((id) => rolesCan(rolesByUser.get(id) ?? [], 'work-order:be-pic'));
-  const workersValid = input.workerIds.every((id) => rolesCan(rolesByUser.get(id) ?? [], 'work-order:be-worker'));
-  const reviewerValid = !input.reviewerId || rolesCan(rolesByUser.get(input.reviewerId) ?? [], 'work-order:be-reviewer');
-  const overseersValid = input.overseerIds.every((id) => rolesCan(rolesByUser.get(id) ?? [], 'work-order:be-overseer'));
+function participantsAreEligible(participants: Array<{ id: string; permissions: Permission[] }>, input: { assigneeIds: string[]; workerIds: string[]; reviewerId?: string | null; overseerIds: string[] }): boolean {
+  const permissionsByUser = new Map(participants.map((participant) => [participant.id, participant.permissions]));
+  const has = (id: string, permission: Permission) => can(permissionsByUser.get(id), permission);
+  const picsValid = input.assigneeIds.every((id) => has(id, 'work-order:be-pic'));
+  const workersValid = input.workerIds.every((id) => has(id, 'work-order:be-worker'));
+  const reviewerValid = !input.reviewerId || has(input.reviewerId, 'work-order:be-reviewer');
+  const overseersValid = input.overseerIds.every((id) => has(id, 'work-order:be-overseer'));
   return picsValid && workersValid && reviewerValid && overseersValid;
 }
 
-async function canDiscussProgress(workOrderId: string, userId: string, roles: readonly Role[]): Promise<boolean> {
-  if (rolesCan(roles, 'work-order:operate-any')) return true;
+async function canDiscussProgress(workOrderId: string, userId: string, permissions: readonly Permission[]): Promise<boolean> {
+  if (can(permissions, 'work-order:operate-any')) return true;
   const rows = await sql`
     select 1 from work_orders wo where wo.id = ${workOrderId} and wo.reviewer_id = ${userId}
     union all select 1 from work_order_assignees where work_order_id = ${workOrderId} and user_id = ${userId}
@@ -265,8 +275,8 @@ export async function workOrderRoutes(app: FastifyInstance) {
     const [users, campuses, buildings, locationOptions, workOptions, periods] = await Promise.all([
       sql`
         select u.id, u.full_name, u.email::text,
-          coalesce(array_agg(ur.role) filter (where ur.role is not null), '{}') as roles
-        from users u left join user_roles ur on ur.user_id = u.id
+          coalesce(array_agg(up.permission) filter (where up.permission is not null), '{}') as permissions
+        from users u left join user_permissions up on up.user_id = u.id
         where u.active = true group by u.id order by u.full_name
       `,
       sql`select id, name from campuses where active = true order by name`,
@@ -379,9 +389,9 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: { proposalApprovals, completionReviews, internalProcurementReviews } };
   });
 
-  app.get('/work-orders', async (request) => {
+  app.get('/work-orders', { preHandler: requireAnyPermission(viewWorkOrders) }, async (request) => {
     const query = z.object({ scope: z.enum(['all', 'mine']).default('all'), status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional() }).parse(request.query);
-    const scope = resolveWorkOrderScope(request.currentUser.roles, query.scope);
+    const scope = resolveWorkOrderScope(request.currentUser.permissions, query.scope);
     const rows = scope === 'mine'
       ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.removed_at is null and (
           exists (select 1 from work_order_assignees mine where mine.work_order_id = wo.id and mine.user_id = ${request.currentUser.id})
@@ -398,7 +408,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/work-orders/:id', async (request, reply) => {
+  app.get('/work-orders/:id', { preHandler: requireAnyPermission(viewWorkOrders) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const rows = can(request.currentUser.permissions, 'work-order:read-all')
       ? await sql<WorkOrderRow[]>`${selectWorkOrders} where wo.id = ${id} and wo.removed_at is null`
@@ -468,10 +478,10 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/progress/:progressUpdateId/comments', async (request, reply) => {
+  app.post('/work-orders/:id/progress/:progressUpdateId/comments', { preHandler: requireAnyPermission(discussWorkOrder) }, async (request, reply) => {
     const { id, progressUpdateId } = z.object({ id: z.string().uuid(), progressUpdateId: z.string().uuid() }).parse(request.params);
     const input = commentSchema.parse(request.body);
-    if (!(await canDiscussProgress(id, request.currentUser.id, request.currentUser.roles))) {
+    if (!(await canDiscussProgress(id, request.currentUser.id, request.currentUser.permissions))) {
       return reply.code(403).send({ error: { code: 'DISCUSSION_ACCESS_DENIED', message: 'Only a PIC, worker, reviewer, or overseer may join this discussion.', requestId: request.id } });
     }
     const result = await sql.begin(async (transaction) => {
@@ -556,13 +566,13 @@ export async function workOrderRoutes(app: FastifyInstance) {
       const expectedParticipantCount = input.assigneeIds.length + input.workerIds.length + input.overseerIds.length + (input.reviewerId ? 1 : 0);
       if (participantIds.length !== expectedParticipantCount) return { error: 'DUPLICATE_RESPONSIBILITY' } as const;
       if (input.workType === 'VENDOR' && input.workerIds.length) return { error: 'VENDOR_WORKERS_NOT_ALLOWED' } as const;
-      const activeParticipants = await transaction<Array<{ id: string; roles: Role[] }>>`
-        select u.id, coalesce(array_agg(ur.role) filter (where ur.role is not null), '{}') as roles
-        from users u left join user_roles ur on ur.user_id = u.id
+      const activeParticipants = await transaction<Array<{ id: string; permissions: Permission[] }>>`
+        select u.id, coalesce(array_agg(up.permission) filter (where up.permission is not null), '{}') as permissions
+        from users u left join user_permissions up on up.user_id = u.id
         where u.active = true and u.id = any(${participantIds}::uuid[]) group by u.id
       `;
       if (activeParticipants.length !== participantIds.length) return { error: 'INVALID_PARTICIPANT' } as const;
-      if (!participantsHaveEligibleRoles(activeParticipants, input)) return { error: 'PARTICIPANT_ROLE_MISMATCH' } as const;
+      if (!participantsAreEligible(activeParticipants, input)) return { error: 'PARTICIPANT_ROLE_MISMATCH' } as const;
       const year = Number(input.dueDate.slice(0, 4));
       const sequenceRows = await transaction<Array<{ last_value: number }>>`
         insert into work_order_sequences (year, last_value) values (${year}, 1)
@@ -651,7 +661,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/attachments/upload', async (request, reply) => {
+  app.post('/work-orders/:id/attachments/upload', { preHandler: requireAnyPermission(addEvidence) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const upload = await request.file({ limits: { files: 1, fileSize: evidenceRules.maxFileSizeBytes, fields: 4, parts: 5 } });
     if (!upload) return reply.code(400).send({ error: { code: 'FILE_REQUIRED', message: 'Choose a file to upload.', requestId: request.id } });
@@ -669,7 +679,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (workOrder.version !== input.expectedVersion) return reply.code(409).send({ error: { code: 'VERSION_CONFLICT', message: 'Reload the work order before uploading.', requestId: request.id } });
     const assignedPic = await isWorkOrderPic(id, request.currentUser.id);
     const assignedWorker = await isAssignedWorker(id, request.currentUser.id);
-    const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
+    const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ permissions: request.currentUser.permissions, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
     if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
     if (attachmentContext === 'INTERNAL_PROCUREMENT' && workOrder.work_type !== 'INTERNAL') return reply.code(422).send({ error: { code: 'INTERNAL_WORK_REQUIRED', message: 'Internal procurement attachments require internal work.', requestId: request.id } });
     if (attachmentContext === 'VENDOR_PROPOSAL' && workOrder.work_type !== 'VENDOR') return reply.code(422).send({ error: { code: 'VENDOR_WORK_REQUIRED', message: 'Vendor proposal attachments require vendor work.', requestId: request.id } });
@@ -715,7 +725,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
 
 
 
-  app.post('/work-orders/:id/attachments/drive-transfer', async (request, reply) => {
+  app.post('/work-orders/:id/attachments/drive-transfer', { preHandler: requireAnyPermission(addEvidence) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = transferDriveEvidenceSchema.parse(request.body);
     const attachmentContext = input.attachmentContext ?? (input.evidenceType === 'PROGRESS' ? 'PROGRESS_UPDATE' : input.evidenceType === 'PROPOSAL' ? 'VENDOR_PROPOSAL' : input.evidenceType);
@@ -728,7 +738,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (workOrder.version !== input.expectedVersion) return reply.code(409).send({ error: { code: 'VERSION_CONFLICT', message: 'Reload the work order before adding evidence.', requestId: request.id } });
     const assignedPic = await isWorkOrderPic(id, request.currentUser.id);
     const assignedWorker = await isAssignedWorker(id, request.currentUser.id);
-    const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
+    const workerMayUpload = ((attachmentContext === 'PROGRESS_UPDATE' && input.evidenceType === 'PROGRESS') || (attachmentContext === 'COMPLETION' && input.evidenceType === 'COMPLETION' && workOrder.workflow_stage === 'IN_PROGRESS')) && canWorkerRecordProgress({ permissions: request.currentUser.permissions, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage });
     if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !workerMayUpload) return reply.code(403).send({ error: { code: 'ATTACHMENT_CONTEXT_FORBIDDEN', message: 'You cannot add an attachment for this action.', requestId: request.id } });
     if (attachmentContext === 'INTERNAL_PROCUREMENT' && workOrder.work_type !== 'INTERNAL') return reply.code(422).send({ error: { code: 'INTERNAL_WORK_REQUIRED', message: 'Internal procurement attachments require internal work.', requestId: request.id } });
     if (attachmentContext === 'VENDOR_PROPOSAL' && workOrder.work_type !== 'VENDOR') return reply.code(422).send({ error: { code: 'VENDOR_WORK_REQUIRED', message: 'Vendor proposal attachments require vendor work.', requestId: request.id } });
@@ -768,7 +778,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return reply.code(201).send({ data: result });
   });
 
-  app.post('/work-orders/:id/attachments/link', async (request, reply) => {
+  app.post('/work-orders/:id/attachments/link', { preHandler: requireAnyPermission(addEvidence) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = linkDriveEvidenceSchema.parse(request.body);
     const rows = await sql<Array<{ version: number; primary_assignee_id: string; drive_provisioning_status: string; drive_subfolders: Partial<DriveSubfolderMap> }>>`
@@ -821,7 +831,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return reply.code(201).send({ data: result });
   });
 
-  app.post('/work-orders/:id/condition', async (request, reply) => {
+  app.post('/work-orders/:id/condition', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = changeConditionSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -879,7 +889,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.patch('/work-orders/:id/participants', async (request, reply) => {
+  app.patch('/work-orders/:id/participants', { preHandler: requireAnyPermission(changeParticipants) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = participantsSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -897,13 +907,13 @@ export async function workOrderRoutes(app: FastifyInstance) {
       const participantIds = [...new Set([...input.assigneeIds, ...input.workerIds, ...(input.reviewerId ? [input.reviewerId] : []), ...input.overseerIds])];
       const expectedParticipantCount = input.assigneeIds.length + input.workerIds.length + input.overseerIds.length + (input.reviewerId ? 1 : 0);
       if (participantIds.length !== expectedParticipantCount) return { error: 'DUPLICATE_RESPONSIBILITY' } as const;
-      const activeParticipants = await transaction<Array<{ id: string; roles: Role[] }>>`
-        select u.id, coalesce(array_agg(ur.role) filter (where ur.role is not null), '{}') as roles
-        from users u left join user_roles ur on ur.user_id = u.id
+      const activeParticipants = await transaction<Array<{ id: string; permissions: Permission[] }>>`
+        select u.id, coalesce(array_agg(up.permission) filter (where up.permission is not null), '{}') as permissions
+        from users u left join user_permissions up on up.user_id = u.id
         where u.active = true and u.id = any(${participantIds}::uuid[]) group by u.id
       `;
       if (activeParticipants.length !== participantIds.length) return { error: 'INVALID_PARTICIPANT' } as const;
-      if (!participantsHaveEligibleRoles(activeParticipants, input)) return { error: 'PARTICIPANT_ROLE_MISMATCH' } as const;
+      if (!participantsAreEligible(activeParticipants, input)) return { error: 'PARTICIPANT_ROLE_MISMATCH' } as const;
       const [previousAssignees, previousWorkers, previousOverseers] = await Promise.all([
         transaction<Array<{ user_id: string }>>`select user_id from work_order_assignees where work_order_id = ${id}`,
         transaction<Array<{ user_id: string }>>`select user_id from work_order_workers where work_order_id = ${id}`,
@@ -1068,7 +1078,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: { dueDate: result.dueDate, deadlineGroup, version: result.version } };
   });
 
-  app.post('/work-orders/:id/vendor-search', async (request, reply) => {
+  app.post('/work-orders/:id/vendor-search', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = vendorSearchSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1106,7 +1116,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/proposal', async (request, reply) => {
+  app.post('/work-orders/:id/proposal', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = proposalSubmissionSchema.parse(request.body);
     const rows = await sql<Array<{ work_type: WorkType; workflow_stage: WorkflowStage; status: string; version: number; primary_assignee_id: string; drive_provisioning_status: string; drive_subfolders: Partial<DriveSubfolderMap> }>>`
@@ -1184,7 +1194,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/proposal/submit', async (request, reply) => {
+  app.post('/work-orders/:id/proposal/submit', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = z.object({ note: z.string().trim().min(3).max(2000), expectedVersion: z.number().int().positive() }).parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1217,7 +1227,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
         from work_orders wo
         cross join lateral (
           select wo.reviewer_id as user_id where wo.reviewer_id is not null
-          union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:approve')}::app_role[])
+          union select up.user_id from user_permissions up where up.permission = 'work-order:approve'
         ) recipients where wo.id = ${id} and recipients.user_id <> ${request.currentUser.id}
         on conflict do nothing
       `;
@@ -1282,7 +1292,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/procurement-proposal/require', async (request, reply) => {
+  app.post('/work-orders/:id/procurement-proposal/require', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = requireProcurementSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1307,7 +1317,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.patch('/work-orders/:id/procurement-proposal', async (request, reply) => {
+  app.patch('/work-orders/:id/procurement-proposal', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = updateProcurementSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1331,7 +1341,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/procurement-proposal/submit', async (request, reply) => {
+  app.post('/work-orders/:id/procurement-proposal/submit', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = submitProcurementSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1353,7 +1363,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       await transaction`update work_orders set version = version + 1, updated_at = now() where id = ${id}`;
       await transaction`insert into progress_updates (work_order_id, update_type, note, structured_data, created_by) values (${id}, 'PROCUREMENT_PROPOSAL_SUBMITTED', ${input.note ?? 'Proposal submitted through the external Finance process.'}, ${transaction.json({ previousStatus: workOrder.procurement_status, status: 'SUBMITTED', attachmentIds: input.attachmentIds, externalFinanceConfirmed: true })}, ${request.currentUser.id})`;
       await transaction`insert into audit_events (work_order_id, user_id, event_type, previous_data, new_data, correlation_id) values (${id}, ${request.currentUser.id}, 'PROCUREMENT_PROPOSAL_SUBMITTED', ${transaction.json({ status: workOrder.procurement_status })}, ${transaction.json({ status: 'SUBMITTED', attachmentIds: input.attachmentIds, externalFinanceConfirmed: true })}, ${request.id})`;
-      await transaction`insert into notifications (recipient_user_id, work_order_id, type, title, message) select ur.user_id, ${id}, 'PROCUREMENT_PROPOSAL_SUBMITTED', wo.work_order_number || ': procurement proposal awaiting review', wo.title from user_roles ur cross join work_orders wo where wo.id = ${id} and ur.role in ('ADMINISTRATOR', 'FACILITIES_MANAGER') and ur.user_id <> ${request.currentUser.id} on conflict do nothing`;
+      await transaction`insert into notifications (recipient_user_id, work_order_id, type, title, message) select up.user_id, ${id}, 'PROCUREMENT_PROPOSAL_SUBMITTED', wo.work_order_number || ': procurement proposal awaiting review', wo.title from user_permissions up cross join work_orders wo where wo.id = ${id} and up.permission = 'work-order:approve' and up.user_id <> ${request.currentUser.id} on conflict do nothing`;
       return { status: 'SUBMITTED', version: workOrder.version + 1, procurementVersion: workOrder.procurement_version + 1 } as const;
     });
     if ('error' in result) return reply.code(result.error === 'NOT_FOUND' ? 404 : result.error === 'VERSION_CONFLICT' ? 409 : result.error === 'PROCUREMENT_FORBIDDEN' ? 403 : 422).send({ error: { code: result.error, message: 'The procurement proposal could not be submitted.', requestId: request.id } });
@@ -1386,7 +1396,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/procurement-proposal/clear', async (request, reply) => {
+  app.post('/work-orders/:id/procurement-proposal/clear', { preHandler: requireAnyPermission(actAsPic) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = clearProcurementSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1411,7 +1421,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/progress-update', async (request, reply) => {
+  app.post('/work-orders/:id/progress-update', { preHandler: requireAnyPermission(recordProgress) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = progressUpdateSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1424,7 +1434,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
       if (!canRecordMidProgress(workOrder.status, workOrder.workflow_stage)) return { error: 'INVALID_PROGRESS_STAGE' } as const;
       const assignedPic = Boolean((await transaction`select 1 from work_order_assignees where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
       const assignedWorker = Boolean((await transaction`select 1 from work_order_workers where work_order_id = ${id} and user_id = ${request.currentUser.id} limit 1`).length);
-      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !canWorkerRecordProgress({ roles: request.currentUser.roles, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage })) return { error: 'NOT_ASSIGNED' } as const;
+      if (!can(request.currentUser.permissions, 'work-order:operate-any') && !assignedPic && !canWorkerRecordProgress({ permissions: request.currentUser.permissions, assignedWorker, status: workOrder.status, workType: workOrder.work_type, stage: workOrder.workflow_stage })) return { error: 'NOT_ASSIGNED' } as const;
       const linkedAttachments = input.attachmentIds.length ? await transaction<Array<{ id: string }>>`
         select id from attachments
         where work_order_id = ${id} and uploaded_by = ${request.currentUser.id} and removed_at is null and status in ('PENDING', 'ATTACHED')
@@ -1456,7 +1466,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/submit-completion', async (request, reply) => {
+  app.post('/work-orders/:id/submit-completion', { preHandler: requireAnyPermission(recordProgress) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = completionSubmissionSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1504,7 +1514,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
         select recipients.user_id, ${id}, 'COMPLETION_REVIEW_SUBMITTED', ${`${workOrder.work_order_number}: completion review submitted`}, ${`${workOrder.title}: ${input.note}`}
         from (
           select ${workOrder.reviewer_id}::uuid as user_id where ${workOrder.reviewer_id}::uuid is not null
-          union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:approve')}::app_role[])
+          union select up.user_id from user_permissions up where up.permission = 'work-order:approve'
         ) recipients where recipients.user_id <> ${request.currentUser.id}
       `;
       return { version: workOrder.version + 1 } as const;
@@ -1516,7 +1526,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  app.post('/work-orders/:id/transitions', async (request, reply) => {
+  app.post('/work-orders/:id/transitions', { preHandler: requireAnyPermission(moveStage) }, async (request, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(request.params);
     const input = transitionSchema.parse(request.body);
     const result = await sql.begin(async (transaction) => {
@@ -1549,7 +1559,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
         workType: workOrder.work_type,
         from: workOrder.workflow_stage,
         to: input.toStage,
-        roles: request.currentUser.roles as Role[],
+        permissions: request.currentUser.permissions,
         reason: input.reason,
         hasProposalEvidence,
         hasCompletionEvidence,
@@ -1591,7 +1601,7 @@ export async function workOrderRoutes(app: FastifyInstance) {
           select recipients.user_id, ${id}, 'COMPLETION_REVIEW_SUBMITTED', ${`${workOrder.work_order_number}: completion review submitted`}, ${`${workOrder.title}: ${completionSummary}`}
           from (
             select ${workOrder.reviewer_id}::uuid as user_id where ${workOrder.reviewer_id}::uuid is not null
-            union select ur.user_id from user_roles ur where ur.role = any(${rolesWithPermission('work-order:approve')}::app_role[])
+            union select up.user_id from user_permissions up where up.permission = 'work-order:approve'
           ) recipients where recipients.user_id <> ${request.currentUser.id}
         `;
       } else if (workOrder.workflow_stage === 'REVIEW') {

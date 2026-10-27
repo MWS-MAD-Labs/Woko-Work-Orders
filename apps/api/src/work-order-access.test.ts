@@ -1,19 +1,20 @@
 import { describe, expect, it } from 'vitest';
+import { permissionBundles } from '@woko/domain';
 import { resolveWorkOrderScope } from './work-orders.js';
 
 describe('work-order visibility scope', () => {
-  it('allows managers to choose organization-wide or personal scope', () => {
-    expect(resolveWorkOrderScope(['ADMINISTRATOR'], 'all')).toBe('all');
-    expect(resolveWorkOrderScope(['FACILITIES_MANAGER'], 'mine')).toBe('mine');
+  it('allows people who can read everything to choose organization-wide or personal scope', () => {
+    expect(resolveWorkOrderScope(permissionBundles.administrator, 'all')).toBe('all');
+    expect(resolveWorkOrderScope(permissionBundles.facilitiesManager, 'mine')).toBe('mine');
   });
 
-  it('forces workers and other non-manager roles to personal scope', () => {
-    expect(resolveWorkOrderScope(['WORKER'], 'all')).toBe('mine');
-    expect(resolveWorkOrderScope(['PERSON_IN_CHARGE'], 'all')).toBe('mine');
-    expect(resolveWorkOrderScope(['OVERSEER'], 'all')).toBe('mine');
+  it('forces everyone else to personal scope', () => {
+    expect(resolveWorkOrderScope(permissionBundles.worker, 'all')).toBe('mine');
+    expect(resolveWorkOrderScope(permissionBundles.personInCharge, 'all')).toBe('mine');
+    expect(resolveWorkOrderScope(permissionBundles.overseer, 'all')).toBe('mine');
   });
 
-  it('uses the broadest role when a user has multiple roles', () => {
-    expect(resolveWorkOrderScope(['WORKER', 'FACILITIES_MANAGER'], 'all')).toBe('all');
+  it('adds up when a person holds permissions of several kinds', () => {
+    expect(resolveWorkOrderScope([...permissionBundles.worker, 'work-order:read-all'], 'all')).toBe('all');
   });
 });
