@@ -87,8 +87,11 @@ docs/
      insert into users (id, email, full_name)
      values ('30000000-0000-4000-8000-000000000001', 'dev.admin@millennia21.id', 'Dev Admin')
      on conflict do nothing;
-     insert into user_roles (user_id, role)
-     values ('30000000-0000-4000-8000-000000000001', 'ADMINISTRATOR')
+     insert into user_permissions (user_id, permission)
+     select '30000000-0000-4000-8000-000000000001', unnest(array[
+       'work-order:create','work-order:read-all','work-order:operate-any','work-order:transition-any','work-order:approve',
+       'work-order:reopen','work-order:cancel','work-order:set-schedule','work-order:manage-participants','work-order:read-audit',
+       'work-order:delete','work-order:be-reviewer','work-list:manage','facilities:request','facilities:manage','settings:manage','users:manage'])
      on conflict do nothing;"
    ```
 

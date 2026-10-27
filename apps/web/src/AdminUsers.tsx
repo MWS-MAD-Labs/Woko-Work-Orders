@@ -1,24 +1,27 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Check, Mail, Plus, ShieldCheck, X } from 'lucide-react';
-import { rolePermissions, roles, type Role } from '@woko/domain';
+import { permissionBundles, permissionGroups, type Permission, type PermissionBundle } from '@woko/domain';
 import { api } from './api';
 import type { Locale } from './i18n';
+import { bundleLabels, groupLabels, permissionLabels } from './permission-labels';
 import type { AdminUser } from './types';
 
-const roleLabels: Record<Locale, Record<Role, string>> = {
-  en: { ADMINISTRATOR: 'Administrator', FACILITIES_MANAGER: 'Facilities Manager', PERSON_IN_CHARGE: 'Person in Charge', WORKER: 'Worker', OVERSEER: 'Overseer' },
-  id: { ADMINISTRATOR: 'Administrator', FACILITIES_MANAGER: 'Manajer Fasilitas', PERSON_IN_CHARGE: 'Penanggung Jawab', WORKER: 'Pekerja', OVERSEER: 'Pengawas' },
-};
-
-function RoleChecks({ selected, locale, onChange }: { selected: Role[]; locale: Locale; onChange: (roles: Role[]) => void }) {
+function PermissionChecks({ selected, locale, onChange }: { selected: readonly Permission[]; locale: Locale; onChange: (permissions: Permission[]) => void }) {
   const id = locale === 'id';
-  return <div className="role-checks">{roles.map((role) => <label key={role} title={`${role === 'WORKER' ? id ? 'Dapat ditugaskan ke pekerjaan internal; tidak memberikan wewenang sebagai PIC atau manajer. ' : 'Eligible for assignment to internal work orders; does not grant PIC or manager authority. ' : ''}${id ? 'Izin' : 'Permissions'}: ${rolePermissions[role].join(', ')}`}><input type="checkbox" checked={selected.includes(role)} onChange={(event) => onChange(event.target.checked ? [...selected, role] : selected.filter((item) => item !== role))} /> {roleLabels[locale][role]}</label>)}</div>;
+  const toggle = (permission: Permission, on: boolean) => onChange(on ? [...selected, permission] : selected.filter((item) => item !== permission));
+  return <div className="permission-checks">
+    <div className="bundle-buttons" role="group" aria-label={id ? 'Isi dari paket' : 'Fill from a bundle'}>
+      <span>{id ? 'Isi dari paket:' : 'Fill from a bundle:'}</span>
+      {(Object.keys(permissionBundles) as PermissionBundle[]).map((bundle) => <button key={bundle} type="button" className="secondary-button" onClick={() => onChange([...permissionBundles[bundle]])}>{bundleLabels[locale][bundle]}</button>)}
+    </div>
+    {permissionGroups.map((group) => <fieldset key={group.key} className="role-checks"><legend>{groupLabels[locale][group.key]}</legend>{group.permissions.map((permission) => <label key={permission} title={permissionLabels[locale][permission].help}><input type="checkbox" checked={selected.includes(permission)} onChange={(event) => toggle(permission, event.target.checked)} /> {permissionLabels[locale][permission].name}</label>)}</fieldset>)}
+  </div>;
 }
 
 export function AdminUsers({ locale, onClose, onChanged }: { locale: Locale; onClose: () => void; onChanged: () => Promise<void> | void }) {
   const id = locale === 'id';
   const [users, setUsers] = useState<AdminUser[]>([]);
-  const [newUser, setNewUser] = useState({ fullName: '', email: '', active: true, roles: ['OVERSEER'] as Role[] });
+  const [newUser, setNewUser] = useState({ fullName: '', email: '', active: true, permissions: [...permissionBundles.overseer] as Permission[] });
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [saving, setSaving] = useState(false);
@@ -29,17 +32,17 @@ export function AdminUsers({ locale, onClose, onChanged }: { locale: Locale; onC
     try {
       await api('/admin/users', { method: 'POST', body: JSON.stringify(newUser) });
       setMessage(id ? `Undangan untuk ${newUser.email} telah dimasukkan ke antrean.` : `Invitation queued for ${newUser.email}.`);
-      setNewUser({ fullName: '', email: '', active: true, roles: ['OVERSEER'] });
+      setNewUser({ fullName: '', email: '', active: true, permissions: [...permissionBundles.overseer] });
       await load();
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : id ? 'Pengguna tidak dapat didaftarkan.' : 'User could not be registered.'); }
     finally { setSaving(false); }
   };
-  const update = async (user: AdminUser, active: boolean, updatedRoles: Role[]) => {
-    if (!updatedRoles.length) { setError(id ? 'Setiap pengguna harus memiliki setidaknya satu peran.' : 'Every user must have at least one role.'); return; }
+  const update = async (user: AdminUser, active: boolean, updatedPermissions: Permission[]) => {
+    if (!updatedPermissions.length) { setError(id ? 'Setiap pengguna harus memiliki setidaknya satu izin.' : 'Every user must have at least one permission.'); return; }
     setSaving(true); setError(''); setMessage('');
     try {
-      await api(`/admin/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ active, roles: updatedRoles }) });
+      await api(`/admin/users/${user.id}`, { method: 'PATCH', body: JSON.stringify({ active, permissions: updatedPermissions }) });
       await load();
       await onChanged();
     } catch (caught) { setError(caught instanceof Error ? caught.message : id ? 'Akses pengguna tidak dapat diubah.' : 'User access could not be changed.'); }
@@ -59,15 +62,15 @@ export function AdminUsers({ locale, onClose, onChanged }: { locale: Locale; onC
       <form className="admin-create-user" onSubmit={create}>
         <h3><Plus /> {id ? 'Daftarkan pengguna' : 'Register user'}</h3>
         <div className="form-grid"><label className="form-field"><span>{id ? 'Nama lengkap *' : 'Full name *'}</span><input value={newUser.fullName} onChange={(event) => setNewUser((current) => ({ ...current, fullName: event.target.value }))} minLength={2} required /></label><label className="form-field"><span>{id ? 'Email sekolah *' : 'School email *'}</span><input type="email" value={newUser.email} onChange={(event) => setNewUser((current) => ({ ...current, email: event.target.value }))} placeholder="name@millennia21.id" required /></label></div>
-        <RoleChecks selected={newUser.roles} locale={locale} onChange={(selectedRoles) => setNewUser((current) => ({ ...current, roles: selectedRoles }))} />
-        <button className="primary-button" disabled={saving || !newUser.roles.length}><Plus /> {id ? 'Daftarkan' : 'Register'}</button>
+        <PermissionChecks selected={newUser.permissions} locale={locale} onChange={(selected) => setNewUser((current) => ({ ...current, permissions: selected }))} />
+        <button className="primary-button" disabled={saving || !newUser.permissions.length}><Plus /> {id ? 'Daftarkan' : 'Register'}</button>
       </form>
       {error && <p className="form-error" role="alert">{error}</p>}
       {message && <p className="form-success" role="status"><Check /> {message}</p>}
       <div className="admin-user-list">{users.map((user) => <article key={user.id}>
-        <div className="admin-user-heading"><span className={`identity-state ${user.identity_linked ? 'linked' : ''}`}>{user.identity_linked ? <Check /> : <ShieldCheck />}{user.identity_linked ? id ? 'Terhubung ke Google' : 'Google linked' : id ? 'Menunggu login pertama' : 'Awaiting first login'}</span><label className="active-toggle"><input type="checkbox" checked={user.active} disabled={saving} onChange={(event) => void update(user, event.target.checked, user.roles)} /> {id ? 'Aktif' : 'Active'}</label></div>
+        <div className="admin-user-heading"><span className={`identity-state ${user.identity_linked ? 'linked' : ''}`}>{user.identity_linked ? <Check /> : <ShieldCheck />}{user.identity_linked ? id ? 'Terhubung ke Google' : 'Google linked' : id ? 'Menunggu login pertama' : 'Awaiting first login'}</span><label className="active-toggle"><input type="checkbox" checked={user.active} disabled={saving} onChange={(event) => void update(user, event.target.checked, user.permissions)} /> {id ? 'Aktif' : 'Active'}</label></div>
         <strong>{user.full_name}</strong><a href={`mailto:${user.email}`}>{user.email}</a>
-        <RoleChecks selected={user.roles} locale={locale} onChange={(selectedRoles) => void update(user, user.active, selectedRoles)} />
+        <PermissionChecks selected={user.permissions} locale={locale} onChange={(selected) => void update(user, user.active, selected)} />
         <div className="admin-user-footer"><small>{user.last_login_at ? `${id ? 'Login terakhir' : 'Last login'} ${new Date(user.last_login_at).toLocaleString(id ? 'id-ID' : undefined)}` : id ? 'Belum pernah login' : 'Never signed in'}</small>{!user.last_login_at && <button type="button" className="secondary-button invitation-button" disabled={saving || !user.active} onClick={() => void resendInvitation(user)}><Mail /> {id ? 'Kirim ulang undangan' : 'Resend invitation'}</button>}</div>
       </article>)}</div>
     </div>

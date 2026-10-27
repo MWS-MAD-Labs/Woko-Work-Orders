@@ -73,9 +73,9 @@ Same-origin production routing is important because authenticated mutations enfo
 
 Woko uses the Google authorization-code flow with PKCE, nonce, and state validation. The API verifies identity claims and the allowed hosted domain before creating an opaque session. Only a hash of the session token is stored in PostgreSQL; the raw token is held in an HTTP-only cookie.
 
-Authorization asks for permissions, not role names. A role is a bundle of permissions defined in one table (`packages/domain/src/permissions.ts`), the session carries the user's permissions (`/me` returns `permissions` next to `roles`), and the API and web check them with `can(...)`. Database queries that filter by role use `rolesWithPermission(...)`. Work-order participation (assigned PIC, worker, reviewer) stays contextual and is checked on top of the permission.
+Access is a list of permissions kept per user (`user_permissions`). There are no roles in the code: every route declares the permission it needs (`requirePermission` for one, `requireAnyPermission` for routes several kinds of people use), the session carries the list (`/me` returns `permissions`), and the web checks the same names with `userCan(...)`. The permissions and their groups are defined once in `packages/domain/src/permissions.ts`. `permissionBundles` (Administrator, Facilities Manager, Person in Charge, Worker, Overseer) are only ready-made lists the administrator can fill in with one click and the first administrator receives; nothing is stored or checked under those names. Work-order participation (assigned PIC, worker, reviewer) stays contextual and is checked inside the route on top of the permission.
 
-Authorization combines global roles and work-order participation:
+Authorization combines permissions and work-order participation. The bundles give an idea of how they are usually granted:
 
 - Administrators manage users and organization settings.
 - Administrators and facilities managers perform management approvals and broader workflow changes.

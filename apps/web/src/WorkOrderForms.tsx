@@ -4,7 +4,7 @@ import { ArrowLeft, ArrowRight, Check, ExternalLink, FileUp, FolderSearch, Rotat
 import { blockerCategories, evidenceRules, evidenceTypes, priorities, proposalDecisions, type EvidenceType, type ProposalDecision, type TaskCondition, type WorkflowStage } from '@woko/domain';
 import { api, createIdempotencyKey, uploadWithProgress } from './api';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
-import { rolesHave, userCan } from './permissions';
+import { userCan } from './permissions';
 import { storedLocale, translator, type Locale } from './i18n';
 import { getProjectProgress } from './work-order-progress';
 import { DriveBrowser, type DriveBrowserItem } from './DriveBrowser';
@@ -120,10 +120,10 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
     reviewerId: '', workType: workTypeOptions[0]?.code ?? 'INTERNAL', dueDate: '', plannedStartDate: '', procurementRequired: '', procurementRequirementNote: '',
     executionWindow: executionWindowOptions[0]?.code ?? '', executionWindowNote: '', planSummary: '',
   });
-  const picUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-pic'));
-  const workerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-worker'));
-  const reviewerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-reviewer'));
-  const overseerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-overseer'));
+  const picUsers = references.users.filter((user) => userCan(user, 'work-order:be-pic'));
+  const workerUsers = references.users.filter((user) => userCan(user, 'work-order:be-worker'));
+  const reviewerUsers = references.users.filter((user) => userCan(user, 'work-order:be-reviewer'));
+  const overseerUsers = references.users.filter((user) => userCan(user, 'work-order:be-overseer'));
   const currentPic = picUsers.find((user) => user.id === currentUser.id);
   const [assigneeIds, setAssigneeIds] = useState<string[]>(currentPic ? [currentPic.id] : picUsers[0] ? [picUsers[0].id] : []);
   const [workerIds, setWorkerIds] = useState<string[]>([]);
@@ -270,10 +270,10 @@ export function CreateWorkOrderForm({ references, currentUser, onClose, onCreate
 
 export function ParticipantsActionForm({ order, references, locale, onClose, onChanged }: { order: WorkOrder; references: ReferenceData; locale: Locale; onClose: () => void; onChanged: () => Promise<void> | void }) {
   const t = translator(locale);
-  const picUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-pic'));
-  const workerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-worker'));
-  const reviewerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-reviewer'));
-  const overseerUsers = references.users.filter((user) => rolesHave(user.roles, 'work-order:be-overseer'));
+  const picUsers = references.users.filter((user) => userCan(user, 'work-order:be-pic'));
+  const workerUsers = references.users.filter((user) => userCan(user, 'work-order:be-worker'));
+  const reviewerUsers = references.users.filter((user) => userCan(user, 'work-order:be-reviewer'));
+  const overseerUsers = references.users.filter((user) => userCan(user, 'work-order:be-overseer'));
   const [assigneeIds, setAssigneeIds] = useState(order.assignees.map((person) => person.id));
   const [workerIds, setWorkerIds] = useState(order.workers.map((person) => person.id));
   const [reviewerId, setReviewerId] = useState(order.reviewer_id ?? '');

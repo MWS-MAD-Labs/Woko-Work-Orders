@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { permissionBundles } from '@woko/domain';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -7,7 +8,7 @@ import { api, uploadWithProgress } from './api';
 import type { CurrentUser, WorkOrder } from './types';
 
 vi.mock('./api', () => ({ api: vi.fn(), uploadWithProgress: vi.fn(), createIdempotencyKey: vi.fn() }));
-const user: CurrentUser = { id: 'manager', email: 'manager@example.test', fullName: 'Manager', roles: ['ADMINISTRATOR'], preferredLocale: 'en', sessionExpiresAt: '2099-01-01' };
+const user: CurrentUser = { id: 'manager', email: 'manager@example.test', fullName: 'Manager', permissions: [...permissionBundles.administrator], preferredLocale: 'en', sessionExpiresAt: '2099-01-01' };
 const order = {
   id: 'order-15', work_type: 'INTERNAL', version: 3, assignees: [], attachments: [],
   procurement: { status: 'SUBMITTED', version: 2, requirement_note: null, submitted_at: null, decision_note: null },

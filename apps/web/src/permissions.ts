@@ -1,12 +1,6 @@
-import { can, permissionsForRoles, rolesCan, type Permission, type Role } from '@woko/domain';
-import type { CurrentUser } from './types';
+import { can, type Permission } from '@woko/domain';
 
-// The server sends the permissions with the session; an older answer without them falls back to the roles.
-export function userCan(user: CurrentUser, permission: Permission): boolean {
-  return can(user.permissions ?? permissionsForRoles(user.roles), permission);
-}
-
-// For the people in a pick list, who only have their roles.
-export function rolesHave(roles: readonly Role[], permission: Permission): boolean {
-  return rolesCan(roles, permission);
+// Anyone with a list of permissions: the signed-in user, or a person in a pick list.
+export function userCan(user: { permissions: readonly Permission[] }, permission: Permission): boolean {
+  return can(user.permissions, permission);
 }
