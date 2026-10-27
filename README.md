@@ -121,6 +121,7 @@ With `AUTH_MODE=hub`, see [Signing in through the Hub](#signing-in-through-the-h
 - Pickers and notifications need other people's rights, so a job copies Central's entitlements into `user_permissions` every `CENTRAL_SYNC_INTERVAL_MINUTES` (default 5). The table is a copy in this mode and the User Access screen is read only. Granting access is done in Central, and the administrator comes from a Central group (AS-12).
 - Check before switching a deployment: `npm run central:sync -- --dry-run` prints what would be created, linked, renamed, changed and switched off, and how many local users have no match in Central. `--apply` does it, `--deactivate-unlinked` also switches off local users that Central does not know.
 - `AUTH_MODE=google` stays as the way back until `hub` is proven in staging.
+- If nobody gets in, run `npm run access:doctor -- --url http://localhost:3011` (the address of the API). It checks the `.env` lines, the Hub, the Central token and its profile, the permission list, who has access, and whether the running API really is in `hub` mode. The API also logs its `AUTH_MODE` and `APP_BASE_URL` when it starts. Restart the API after changing `.env`.
 
 ## Access model
 

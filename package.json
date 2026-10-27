@@ -20,6 +20,7 @@
     "presets:write": "npm run presets:write -w @woko/api --",
     "presets:check": "npm run presets:check -w @woko/api --",
     "access:check": "npm run build -w @woko/domain && node --import tsx node_modules/mws-central-auth/dist/access/bin.js check",
+    "access:doctor": "npm run build -w @woko/domain && node --import tsx node_modules/mws-central-auth/dist/access/bin.js doctor",
     "central:sync": "npm run central:sync -w @woko/api --"
   },
   "devDependencies": {
