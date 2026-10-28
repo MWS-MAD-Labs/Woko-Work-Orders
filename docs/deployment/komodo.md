@@ -255,7 +255,27 @@ Use a Komodo **Procedure** so every successful webhook delivery runs a full Stac
 
 6. Add a workflow triggered by pushes to `main`. It must send a JSON push payload and an HMAC-SHA256 signature in `X-Hub-Signature-256`.
 
-The maintained workflow is `.github/workflows/deploy-komodo.yml`. It sends `{"ref":"refs/heads/main"}` to the Procedure listener, supports manual dispatch, and prevents overlapping production deployments.
+The maintained workflow is `.github/workflows/deploy-komodo.yml`. It runs on pushes to `main` (production) and `staging`, sends `{"ref":"refs/heads/<branch>"}` to the Procedure listener of that branch, supports manual dispatch, and prevents overlapping deployments of the same branch.
+
+### Staging
+
+Staging is a second Stack and a second Procedure, built from the same `compose.yaml`:
+
+1. Create a Stack for branch `staging` with its own project name (not `woko`, so containers and the database volume stay apart), its own `WEB_PORT` that no other stack on the host uses, and a Stack environment for staging (`AUTH_MODE=hub`, the Hub and Central values, the staging `APP_BASE_URL` and `WEB_ORIGIN`).
+2. Create a Procedure `Woko Staging Redeploy` with a `DeployStack` execution for that Stack, a dedicated webhook secret, and the listener URL for branch `staging`:
+
+   ```text
+   https://<komodo-host>/listener/github/procedure/<staging-procedure-id>/staging
+   ```
+
+3. Add these GitHub Actions secrets (repository secrets, or in a GitHub Environment named `staging`):
+
+   - `KOMODO_WEBHOOK_URL_STAGING`: the staging Procedure listener URL
+   - `KOMODO_WEBHOOK_SECRET_STAGING`: the staging Procedure's webhook secret
+
+   Production keeps `KOMODO_WEBHOOK_URL` and `KOMODO_WEBHOOK_SECRET`. A push to `staging` never reads the production pair when the staging pair is set.
+
+Tests (`verify-pr.yml`) run for pull requests to `main` and `staging` and for pushes to `staging`. The deploy job does not wait for them, the same as production today.
 
 Keep **Run Build** enabled on the Stack. The Procedure uses `DeployStack`, so code-only pushes perform a full deployment rather than relying on Compose-file change detection.
 

@@ -1,13 +1,14 @@
-name: Deploy production with Komodo
+name: Deploy with Komodo
 
 on:
   push:
     branches:
       - main
+      - staging
   workflow_dispatch:
 
 concurrency:
-  group: woko-production-deploy
+  group: woko-deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -15,25 +16,29 @@ permissions:
 
 jobs:
   deploy:
-    name: Trigger Komodo procedure
+    name: Trigger Komodo redeploy
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # A GitHub Environment named staging or production can hold the values; the repository secrets work too.
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
 
     steps:
       - name: Trigger signed Komodo webhook
         env:
-          KOMODO_WEBHOOK_URL: ${{ secrets.KOMODO_WEBHOOK_URL }}
-          KOMODO_WEBHOOK_SECRET: ${{ secrets.KOMODO_WEBHOOK_SECRET }}
+          # Staging reads its own names first, so a secret meant for production is not picked by mistake.
+          KOMODO_WEBHOOK_URL: ${{ github.ref == 'refs/heads/staging' && (secrets.KOMODO_WEBHOOK_URL_STAGING || secrets.KOMODO_WEBHOOK_URL) || secrets.KOMODO_WEBHOOK_URL }}
+          KOMODO_WEBHOOK_SECRET: ${{ github.ref == 'refs/heads/staging' && (secrets.KOMODO_WEBHOOK_SECRET_STAGING || secrets.KOMODO_WEBHOOK_SECRET) || secrets.KOMODO_WEBHOOK_SECRET }}
+          BRANCH: ${{ github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
 
           if [[ -z "${KOMODO_WEBHOOK_URL}" || -z "${KOMODO_WEBHOOK_SECRET}" ]]; then
-            echo "::error::KOMODO_WEBHOOK_URL and KOMODO_WEBHOOK_SECRET must be configured as repository secrets."
+            echo "::error::The Komodo webhook URL and secret for ${BRANCH} are not set. Staging reads KOMODO_WEBHOOK_URL_STAGING and KOMODO_WEBHOOK_SECRET_STAGING, production reads KOMODO_WEBHOOK_URL and KOMODO_WEBHOOK_SECRET."
             exit 1
           fi
 
-          payload='{"ref":"refs/heads/main"}'
+          payload='{"ref":"refs/heads/'"${BRANCH}"'"}'
           signature="sha256=$(printf '%s' "${payload}" | openssl dgst -sha256 -hmac "${KOMODO_WEBHOOK_SECRET}" | sed 's/^.* //')"
 
           curl --fail-with-body --silent --show-error \
