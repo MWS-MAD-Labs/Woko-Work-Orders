@@ -2,47 +2,48 @@ import { describe, expect, it } from 'vitest';
 import { getDeadlineGroup, isOverdue } from './deadlines.js';
 import { formatWorkOrderNumber } from './work-order-number.js';
 import { canCreateWorkOrder, canTransitionProcurement, canWorkerRecordProgress, proposalDecisionTargets, validateTransition } from './workflow.js';
-import { changeConditionSchema, changeDueDateSchema, createWorkOrderSchema, proposalDecisionSchema, proposalSubmissionSchema, roles, vendorSearchSchema } from './types.js';
+import { changeConditionSchema, changeDueDateSchema, createWorkOrderSchema, proposalDecisionSchema, proposalSubmissionSchema, vendorSearchSchema } from './types.js';
+import { permissionBundles, permissions } from './permissions.js';
 
 describe('workflow transitions', () => {
   it('allows a person in charge to move one internal stage forward', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'PLANNED', to: 'SCHEDULED', roles: ['PERSON_IN_CHARGE'], plannedStartDate: '2026-07-20' })).toEqual({ allowed: true });
+    expect(validateTransition({ workType: 'INTERNAL', from: 'PLANNED', to: 'SCHEDULED', permissions: [...permissionBundles.personInCharge], plannedStartDate: '2026-07-20' })).toEqual({ allowed: true });
   });
 
   it('does not allow a person in charge to complete their own work', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['PERSON_IN_CHARGE'], hasCompletionEvidence: true }).code).toBe('MANAGER_APPROVAL_REQUIRED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', permissions: [...permissionBundles.personInCharge], hasCompletionEvidence: true }).code).toBe('MANAGER_APPROVAL_REQUIRED');
   });
 
   it('requires a reason when a manager skips stages', () => {
-    expect(validateTransition({ workType: 'VENDOR', from: 'PLANNED', to: 'PROPOSAL', roles: ['FACILITIES_MANAGER'] }).code).toBe('REASON_REQUIRED');
+    expect(validateTransition({ workType: 'VENDOR', from: 'PLANNED', to: 'PROPOSAL', permissions: [...permissionBundles.facilitiesManager] }).code).toBe('REASON_REQUIRED');
   });
 
   it('requires the structured endpoint for proposal submission', () => {
-    expect(validateTransition({ workType: 'VENDOR', from: 'PROPOSAL', to: 'APPROVAL', roles: ['PERSON_IN_CHARGE'] }).code).toBe('STRUCTURED_VENDOR_ACTION_REQUIRED');
+    expect(validateTransition({ workType: 'VENDOR', from: 'PROPOSAL', to: 'APPROVAL', permissions: [...permissionBundles.personInCharge] }).code).toBe('STRUCTURED_VENDOR_ACTION_REQUIRED');
   });
 
   it('requires a planned start date before scheduling', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'PLANNED', to: 'SCHEDULED', roles: ['PERSON_IN_CHARGE'] }).code).toBe('PLANNED_START_DATE_REQUIRED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'PLANNED', to: 'SCHEDULED', permissions: [...permissionBundles.personInCharge] }).code).toBe('PLANNED_START_DATE_REQUIRED');
   });
 
   it('requires a completion summary before review', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['PERSON_IN_CHARGE'] }).code).toBe('COMPLETION_SUMMARY_REQUIRED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', permissions: [...permissionBundles.personInCharge] }).code).toBe('COMPLETION_SUMMARY_REQUIRED');
   });
 
   it('requires completion evidence or a manager waiver', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['FACILITIES_MANAGER'] }).code).toBe('COMPLETION_EVIDENCE_REQUIRED');
-    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['FACILITIES_MANAGER'], hasCompletionEvidence: true }).allowed).toBe(true);
-    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', roles: ['FACILITIES_MANAGER'], completionEvidenceWaiverReason: 'Camera was unavailable after an emergency repair.' }).allowed).toBe(true);
+    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', permissions: [...permissionBundles.facilitiesManager] }).code).toBe('COMPLETION_EVIDENCE_REQUIRED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', permissions: [...permissionBundles.facilitiesManager], hasCompletionEvidence: true }).allowed).toBe(true);
+    expect(validateTransition({ workType: 'INTERNAL', from: 'REVIEW', to: 'COMPLETED', permissions: [...permissionBundles.facilitiesManager], completionEvidenceWaiverReason: 'Camera was unavailable after an emergency repair.' }).allowed).toBe(true);
   });
 
   it('does not grant workflow transitions to workers', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['WORKER'], completionSummary: 'Finished.' }).code).toBe('FORBIDDEN');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', permissions: [...permissionBundles.worker], completionSummary: 'Finished.' }).code).toBe('FORBIDDEN');
   });
 
   it('blocks unresolved procurement and requires a manager override reason', () => {
-    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['PERSON_IN_CHARGE'], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED' }).code).toBe('PROCUREMENT_UNRESOLVED');
-    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['FACILITIES_MANAGER'], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED' }).code).toBe('PROCUREMENT_OVERRIDE_REASON_REQUIRED');
-    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', roles: ['FACILITIES_MANAGER'], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED', procurementOverrideReason: 'Emergency safety work cannot wait for Finance.' }).allowed).toBe(true);
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', permissions: [...permissionBundles.personInCharge], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED' }).code).toBe('PROCUREMENT_UNRESOLVED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', permissions: [...permissionBundles.facilitiesManager], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED' }).code).toBe('PROCUREMENT_OVERRIDE_REASON_REQUIRED');
+    expect(validateTransition({ workType: 'INTERNAL', from: 'IN_PROGRESS', to: 'REVIEW', permissions: [...permissionBundles.facilitiesManager], completionSummary: 'Finished.', procurementStatus: 'SUBMITTED', procurementOverrideReason: 'Emergency safety work cannot wait for Finance.' }).allowed).toBe(true);
   });
 });
 
@@ -119,17 +120,17 @@ describe('work-order number', () => {
 });
 
 describe('v0.6 authorization policies', () => {
-  it('includes the worker role and permits PIC creation', () => {
-    expect(roles).toContain('WORKER');
-    expect(canCreateWorkOrder(['PERSON_IN_CHARGE'])).toBe(true);
-    expect(canCreateWorkOrder(['WORKER'])).toBe(false);
+  it('has the worker permission and permits PIC creation', () => {
+    expect(permissions).toContain('work-order.be-worker');
+    expect(canCreateWorkOrder(permissionBundles.personInCharge)).toBe(true);
+    expect(canCreateWorkOrder(permissionBundles.worker)).toBe(false);
   });
 
   it('allows worker progress only for assigned active internal work that is ready or in progress', () => {
-    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'SCHEDULED' })).toBe(true);
-    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(true);
-    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: true, status: 'ACTIVE', workType: 'VENDOR', stage: 'IN_PROGRESS' })).toBe(false);
-    expect(canWorkerRecordProgress({ roles: ['WORKER'], assignedWorker: false, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(false);
+    expect(canWorkerRecordProgress({ permissions: [...permissionBundles.worker], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'SCHEDULED' })).toBe(true);
+    expect(canWorkerRecordProgress({ permissions: [...permissionBundles.worker], assignedWorker: true, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(true);
+    expect(canWorkerRecordProgress({ permissions: [...permissionBundles.worker], assignedWorker: true, status: 'ACTIVE', workType: 'VENDOR', stage: 'IN_PROGRESS' })).toBe(false);
+    expect(canWorkerRecordProgress({ permissions: [...permissionBundles.worker], assignedWorker: false, status: 'ACTIVE', workType: 'INTERNAL', stage: 'IN_PROGRESS' })).toBe(false);
   });
 
   it('validates procurement transitions', () => {

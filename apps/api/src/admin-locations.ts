@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { authenticate, requireAdministrator } from './auth.js';
+import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
 const nameSchema = z.string().trim().min(1).max(160);
@@ -20,9 +20,8 @@ const locationConfigurationSchema = z.object({
 
 export async function adminLocationRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.addHook('preHandler', requireAdministrator);
 
-  app.get('/admin/locations', async () => {
+  app.get('/admin/locations', { preHandler: requirePermission('settings.read') }, async () => {
     const [campuses, buildings, options] = await Promise.all([
       sql`select id, code, name, active from campuses order by name`,
       sql`select id, campus_id, code, name, active from buildings where removed_at is null order by name`,
@@ -34,7 +33,7 @@ export async function adminLocationRoutes(app: FastifyInstance) {
     return { data: { campuses, buildings, options } };
   });
 
-  app.put('/admin/locations', async (request, reply) => {
+  app.put('/admin/locations', { preHandler: requirePermission('settings.manage') }, async (request, reply) => {
     const input = locationConfigurationSchema.parse(request.body);
     const campusIds = new Set(input.campuses.map((campus) => campus.id));
     const buildingIds = new Set(input.buildings.map((building) => building.id));

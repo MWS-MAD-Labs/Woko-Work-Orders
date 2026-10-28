@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { workTypes, executionWindows } from '@woko/domain';
-import { authenticate, requireAdministrator } from './auth.js';
+import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
 const optionTypeSchema = z.enum(['WORK_TYPE', 'CATEGORY', 'EXECUTION_WINDOW']);
@@ -10,9 +10,8 @@ const fixedCodes = new Set<string>([...workTypes, ...executionWindows]);
 
 export async function adminWorkSettingRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.addHook('preHandler', requireAdministrator);
 
-  app.get('/admin/work-settings', async () => {
+  app.get('/admin/work-settings', { preHandler: requirePermission('settings.read') }, async () => {
     const options = await sql`
       select id, option_type, code, label, active, sort_order
       from organization_work_options where removed_at is null
@@ -21,7 +20,7 @@ export async function adminWorkSettingRoutes(app: FastifyInstance) {
     return { data: options };
   });
 
-  app.put('/admin/work-settings', async (request, reply) => {
+  app.put('/admin/work-settings', { preHandler: requirePermission('settings.manage') }, async (request, reply) => {
     const input = z.object({
       options: z.array(z.object({ id: z.string().uuid(), optionType: optionTypeSchema, code: codeSchema, label: z.string().trim().min(1).max(160), active: z.boolean(), sortOrder: z.number().int().min(-10000).max(10000) })),
       removedIds: z.array(z.string().uuid()),

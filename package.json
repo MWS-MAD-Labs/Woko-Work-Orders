@@ -14,7 +14,14 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "db:migrate": "npm run db:migrate -w @woko/api",
-    "db:seed": "npm run db:seed -w @woko/api"
+    "db:seed": "npm run db:seed -w @woko/api",
+    "permissions:sync": "npm run permissions:sync -w @woko/api --",
+    "permissions:check": "npm run permissions:check -w @woko/api --",
+    "presets:write": "npm run presets:write -w @woko/api --",
+    "presets:check": "npm run presets:check -w @woko/api --",
+    "access:check": "npm run build -w @woko/domain && node --import tsx node_modules/mws-central-auth/dist/access/bin.js check",
+    "access:doctor": "npm run build -w @woko/domain && node --import tsx node_modules/mws-central-auth/dist/access/bin.js doctor",
+    "central:sync": "npm run central:sync -w @woko/api --"
   },
   "devDependencies": {
     "concurrently": "^9.2.0",
@@ -23,5 +30,8 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
   }
 }

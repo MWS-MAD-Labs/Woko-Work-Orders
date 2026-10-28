@@ -73,7 +73,9 @@ Same-origin production routing is important because authenticated mutations enfo
 
 Woko uses the Google authorization-code flow with PKCE, nonce, and state validation. The API verifies identity claims and the allowed hosted domain before creating an opaque session. Only a hash of the session token is stored in PostgreSQL; the raw token is held in an HTTP-only cookie.
 
-Authorization combines global roles and work-order participation:
+Access follows the MWS Access Standard (`mws-data-center/docs/access-standard.md`, v1.0): no roles in the code, every route gated by a permission, Central as the long-term owner of roles and entitlements. Woko's own permission list is the `permissions` constant in `packages/domain/src/permissions.ts` (with descriptions in `apps/web/src/permission-labels.ts`), and the routes declare theirs with `requirePermission` and `requireAnyPermission` in `apps/api/src/auth.ts`. Until login moves to Hub, permissions are kept per user in `user_permissions`; `permissionBundles` are only ready-made lists for the admin screen and the first administrator. `npm run access:check` verifies it on every pull request. Conformance status and the plan to move to Central are tracked in `mws-data-center/docs/access-conformance.md`.
+
+Authorization combines permissions and work-order participation. The bundles give an idea of how they are usually granted:
 
 - Administrators manage users and organization settings.
 - Administrators and facilities managers perform management approvals and broader workflow changes.

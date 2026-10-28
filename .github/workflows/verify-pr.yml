@@ -44,6 +44,8 @@ jobs:
         run: npm test
       - name: PostgreSQL facilities integration tests
         run: npm run test:integration -w @woko/api
+      - name: Access Standard check
+        run: npm run access:check
       - name: Type check
         run: npm run typecheck
       - name: Production build

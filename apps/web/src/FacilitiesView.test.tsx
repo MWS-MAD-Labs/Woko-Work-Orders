@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { permissionBundles } from '@woko/domain';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -9,16 +10,16 @@ import type { CurrentUser } from './types';
 vi.mock('./api', () => ({ api: vi.fn() }));
 
 const borrower: CurrentUser = {
-  id: 'user-1', email: 'borrower@example.test', fullName: 'Borrower', roles: ['WORKER'], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
+  id: 'user-1', email: 'borrower@example.test', fullName: 'Borrower', permissions: [...permissionBundles.worker], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
 };
 const manager: CurrentUser = {
-  id: 'manager-1', email: 'manager@example.test', fullName: 'Facilities Manager', roles: ['FACILITIES_MANAGER'], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
+  id: 'manager-1', email: 'manager@example.test', fullName: 'Facilities Manager', permissions: [...permissionBundles.facilitiesManager], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
 };
 const otherManager: CurrentUser = {
-  id: 'manager-2', email: 'other@example.test', fullName: 'Other Manager', roles: ['FACILITIES_MANAGER'], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
+  id: 'manager-2', email: 'other@example.test', fullName: 'Other Manager', permissions: [...permissionBundles.facilitiesManager], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
 };
 const administrator: CurrentUser = {
-  id: 'admin-1', email: 'admin@example.test', fullName: 'Administrator', roles: ['ADMINISTRATOR'], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
+  id: 'admin-1', email: 'admin@example.test', fullName: 'Administrator', permissions: [...permissionBundles.administrator], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
 };
 const assets = [
   { id: 'asset-1', name: 'Projector', asset_code: 'AV-001', quantity: 3, active: true },

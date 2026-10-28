@@ -13,7 +13,12 @@
     "db:migrate": "tsx src/database/migrate.ts",
     "db:seed": "tsx src/database/seed.ts",
     "notifications:preview": "tsx src/scripts/send-notification-previews.ts",
-    "test:integration": "npm run build -w @woko/domain && vitest run src/facilities-requests.integration.test.ts"
+    "test:integration": "npm run build -w @woko/domain && vitest run src/facilities-requests.integration.test.ts && AUTH_MODE=hub HUB_BASE_URL=https://hub.example.org CENTRAL_API_BASE_URL=https://central.example.org CENTRAL_API_TOKEN=test-token vitest run src/hub-sso.integration.test.ts",
+    "permissions:sync": "tsx src/scripts/permissions-cli.ts sync",
+    "permissions:check": "tsx src/scripts/permissions-cli.ts check",
+    "presets:write": "tsx src/scripts/role-presets-cli.ts write",
+    "presets:check": "tsx src/scripts/role-presets-cli.ts check",
+    "central:sync": "tsx src/scripts/entitlement-sync-cli.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
@@ -27,6 +32,7 @@
     "file-type": "^21.3.4",
     "google-auth-library": "^10.9.0",
     "googleapis": "^173.0.0",
+    "mws-central-auth": "github:MWS-MAD-Labs/mws-central-auth#v0.14.2",
     "postgres": "^3.4.7",
     "sharp": "^0.35.3",
     "web-push": "^3.6.7",

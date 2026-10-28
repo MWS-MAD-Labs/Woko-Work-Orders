@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { proposalDecisionSchema, proposalSubmissionSchema, transferDriveEvidenceSchema, validateTransition, vendorSearchSchema } from '@woko/domain';
+import { permissionBundles, proposalDecisionSchema, proposalSubmissionSchema, transferDriveEvidenceSchema, validateTransition, vendorSearchSchema } from '@woko/domain';
 
 describe('vendor workflow API contracts', () => {
   it('requires structured vendor actions instead of a generic adjacent transition', () => {
-    expect(validateTransition({ workType: 'VENDOR', from: 'PLANNED', to: 'FINDING_VENDOR', roles: ['PERSON_IN_CHARGE'] }).code).toBe('STRUCTURED_VENDOR_ACTION_REQUIRED');
-    expect(validateTransition({ workType: 'VENDOR', from: 'APPROVAL', to: 'SCHEDULED', roles: ['FACILITIES_MANAGER'], plannedStartDate: '2026-08-20' }).code).toBe('PROPOSAL_DECISION_REQUIRED');
+    expect(validateTransition({ workType: 'VENDOR', from: 'PLANNED', to: 'FINDING_VENDOR', permissions: permissionBundles.personInCharge }).code).toBe('STRUCTURED_VENDOR_ACTION_REQUIRED');
+    expect(validateTransition({ workType: 'VENDOR', from: 'APPROVAL', to: 'SCHEDULED', permissions: permissionBundles.facilitiesManager, plannedStartDate: '2026-08-20' }).code).toBe('PROPOSAL_DECISION_REQUIRED');
   });
 
   it('validates required structured fields', () => {

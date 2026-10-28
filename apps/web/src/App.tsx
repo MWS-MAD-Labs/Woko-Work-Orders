@@ -3,9 +3,11 @@ import { AlertTriangle, BarChart3, Bell, BriefcaseBusiness, CheckCircle2, Chevro
 import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
+import { HUB_SESSION_REQUIRED, claimHubRedirect } from './hub-redirect';
 import { translator, type Locale } from './i18n';
 import { ConditionActionForm, CreateWorkOrderForm, DueDateActionForm, EvidencePanel, InternalProcurementPanel, ParticipantsActionForm, ProposalDecisionForm, VendorActionForm, WorkflowActionForm } from './WorkOrderForms';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
+import { userCan } from './permissions';
 import { OrganizationSettings } from './OrganizationSettings';
 import { ApprovalsView } from './ApprovalsView';
 import { NotificationsView } from './NotificationsView';
@@ -86,9 +88,16 @@ function localizedEnum(value: string, locale: Locale): string {
   return value.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+// With the Hub, a missing session is restored at the Hub and the person comes straight back. True when that has started.
+function goToHub(caught: ApiError): boolean {
+  if (caught.code !== HUB_SESSION_REQUIRED || !claimHubRedirect(window.sessionStorage)) return false;
+  window.location.replace(authLoginUrl(`${window.location.pathname}${window.location.search}`));
+  return true;
+}
+
 function LoginScreen({ error, locale }: { error?: string; locale: Locale }) {
   const idLocale = locale === 'id';
-  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">{idLocale ? 'Pekerjaan' : 'Work Order'}</span><h1>{idLocale ? 'Masuk ke Woko' : 'Sign in to Woko'}</h1><p>{idLocale ? 'Gunakan akun Google Workspace ' : 'Use your registered '}<strong>@millennia21.id</strong>{idLocale ? ' yang telah terdaftar.' : ' Google Workspace account.'}</p>{error && <p className="form-error">{idLocale ? 'Gagal masuk' : 'Sign-in failed'}: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> {idLocale ? 'Lanjutkan dengan Google' : 'Continue with Google'}</a></section></main>;
+  return <main className="login-page"><section className="login-card"><BrandLogo variant="icon" /><span className="eyebrow">{idLocale ? 'Pekerjaan' : 'Work Order'}</span><h1>{idLocale ? 'Masuk ke Woko' : 'Sign in to Woko'}</h1><p>{idLocale ? 'Gunakan akun ' : 'Use your registered '}<strong>@millennia21.id</strong>{idLocale ? ' yang telah terdaftar.' : ' account.'}</p>{error && <p className="form-error">{idLocale ? 'Gagal masuk' : 'Sign-in failed'}: {error.replaceAll('_', ' ').toLowerCase()}.</p>}<a className="primary-button" href={authLoginUrl(`${window.location.pathname}${window.location.search}`)}><LogIn /> {idLocale ? 'Lanjutkan' : 'Continue'}</a></section></main>;
 }
 
 function StartupErrorScreen({ message, locale, onRetry }: { message: string; locale: Locale; onRetry: () => void }) {
@@ -171,24 +180,29 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [showPrintHistory, setShowPrintHistory] = useState(false);
-  const isManager = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
+  const canOperateAny = userCan(currentUser, 'work-order.operate-any');
+  const canApprove = userCan(currentUser, 'work-order.approve');
+  const canReopenAny = userCan(currentUser, 'work-order.reopen');
+  const canSchedule = userCan(currentUser, 'work-order.set-schedule');
+  const canManageAnyParticipants = userCan(currentUser, 'work-order.manage-participants');
+  const canReadAudit = userCan(currentUser, 'work-order.read-audit');
   const isPic = order.assignees.some((person) => person.id === currentUser.id);
   const isWorker = order.workers.some((person) => person.id === currentUser.id);
-  const workerCanProgress = currentUser.roles.includes('WORKER') && isWorker && order.status === 'ACTIVE' && order.work_type === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(order.workflow_stage);
-  const canProgress = order.status === 'ACTIVE' && (isManager || isPic || workerCanProgress);
-  const canChangeCondition = order.status === 'ACTIVE' && (isManager || isPic);
-  const canManageParticipants = isManager || order.assignees.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id;
-  const canComment = isManager || isPic || isWorker || order.reviewer_id === currentUser.id || order.overseers.some((person) => person.id === currentUser.id);
-  const canReopen = order.status === 'COMPLETED' && isManager;
+  const workerCanProgress = userCan(currentUser, 'work-order.be-worker') && isWorker && order.status === 'ACTIVE' && order.work_type === 'INTERNAL' && ['SCHEDULED', 'IN_PROGRESS'].includes(order.workflow_stage);
+  const canProgress = order.status === 'ACTIVE' && (canOperateAny || isPic || workerCanProgress);
+  const canChangeCondition = order.status === 'ACTIVE' && (canOperateAny || isPic);
+  const canManageParticipants = canManageAnyParticipants || order.assignees.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id;
+  const canComment = canOperateAny || isPic || isWorker || order.reviewer_id === currentUser.id || order.overseers.some((person) => person.id === currentUser.id);
+  const canReopen = order.status === 'COMPLETED' && canReopenAny;
   const hasUnresolvedInternalProcurement = order.work_type === 'INTERNAL' && Boolean(order.procurement && !['NOT_REQUIRED', 'APPROVED'].includes(order.procurement.status));
   const isStructuredVendorStage = order.work_type === 'VENDOR' && ['PLANNED', 'FINDING_VENDOR', 'PROPOSAL'].includes(order.workflow_stage);
   const isProposalApproval = order.work_type === 'VENDOR' && order.workflow_stage === 'APPROVAL';
-  const canDecideProposal = isManager && !order.assignees.some((person) => person.id === currentUser.id);
+  const canDecideProposal = canApprove && !order.assignees.some((person) => person.id === currentUser.id);
   const audits = order.audits;
   const progress = getProjectProgress(order, locale);
   const projectPhases = [...getProjectPhases(locale, order.work_type)];
   if (progress.sublabel && order.work_type === 'INTERNAL') projectPhases[1] = progress.label ?? projectPhases[1] ?? (locale === 'id' ? 'Pengadaan' : 'Procuring');
-  const progressActionLabel = getProgressActionLabel(order, isManager, locale);
+  const progressActionLabel = getProgressActionLabel(order, canApprove, locale);
   const deleteWorkOrder = async () => {
     setDeleting(true);
     setDeleteError('');
@@ -232,9 +246,9 @@ function DetailDrawer({ order, locale, currentUser, references, onClose, onChang
           const updateAttachments = (order.attachments ?? []).filter((attachment) => attachmentIds.includes(attachment.id));
           return <article className="timeline-item" key={update.id}><span className="timeline-dot" /><div><strong>{getUpdateLabel(update.update_type, locale)}</strong>{update.update_type !== 'FILE_EVIDENCE_ADDED' && <p>{update.note}</p>}{participantChanges.length > 0 && <ul className="participant-change-list">{participantChanges.map((change) => <li key={change}>{change}</li>)}</ul>}{updateAttachments.length > 0 && <div className="timeline-attachment-list">{updateAttachments.map((attachment) => <a key={attachment.id} href={attachment.drive_url} target="_blank" rel="noreferrer"><FileText /> <span><strong>{attachment.original_file_name ?? attachment.file_name}</strong><small>{localizedEnum(attachment.evidence_type, locale)} · {attachment.uploaded_by}</small></span><ExternalLink /></a>)}</div>}<small>{update.author} · {formatDistanceToNow(new Date(update.created_at), { addSuffix: true, locale: dateLocale })}</small><ProgressDiscussion orderId={order.id} update={update} locale={locale} canComment={canComment} onChanged={onChanged} /></div></article>;
         }) : <p className="muted">{t('noUpdates')}</p>}</section>
-        {isManager && <details className="audit-details"><summary>{locale === 'id' ? 'Riwayat audit teknis' : 'Technical audit history'} ({audits?.length ?? 0})</summary>{audits?.length ? audits.map((audit: any) => <article className="timeline-item" key={audit.id}><span className="timeline-dot" /><div><strong>{localizedEnum(String(audit.event_type), locale)}</strong>{audit.reason && <p>{audit.reason}</p>}<small>{audit.author ?? (locale === 'id' ? 'Sistem' : 'System')} · {formatDistanceToNow(new Date(audit.created_at), { addSuffix: true, locale: dateLocale })}</small></div></article>) : <p className="muted">{locale === 'id' ? 'Belum ada peristiwa audit yang tercatat.' : 'No audit events recorded.'}</p>}</details>}
+        {canReadAudit && <details className="audit-details"><summary>{locale === 'id' ? 'Riwayat audit teknis' : 'Technical audit history'} ({audits?.length ?? 0})</summary>{audits?.length ? audits.map((audit: any) => <article className="timeline-item" key={audit.id}><span className="timeline-dot" /><div><strong>{localizedEnum(String(audit.event_type), locale)}</strong>{audit.reason && <p>{audit.reason}</p>}<small>{audit.author ?? (locale === 'id' ? 'Sistem' : 'System')} · {formatDistanceToNow(new Date(audit.created_at), { addSuffix: true, locale: dateLocale })}</small></div></article>) : <p className="muted">{locale === 'id' ? 'Belum ada peristiwa audit yang tercatat.' : 'No audit events recorded.'}</p>}</details>}
       </div>
-      <footer className="drawer-actions">{currentUser.roles.includes('ADMINISTRATOR') && <button className="secondary-button delete-work-order-button" onClick={() => { setDeleteError(''); setConfirmingDelete(true); }}><Trash2 /> {locale === 'id' ? 'Hapus pekerjaan' : 'Delete work order'}</button>}{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>{locale === 'id' ? 'Laporkan masalah' : 'Report issue'}</button>}{isManager && <button className="secondary-button" onClick={() => setAction('due-date')}>{locale === 'id' ? 'Ubah tanggal tenggat' : 'Change due date'}</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && !hasUnresolvedInternalProcurement && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
+      <footer className="drawer-actions">{userCan(currentUser, 'work-order.delete') && <button className="secondary-button delete-work-order-button" onClick={() => { setDeleteError(''); setConfirmingDelete(true); }}><Trash2 /> {locale === 'id' ? 'Hapus pekerjaan' : 'Delete work order'}</button>}{canChangeCondition && <button className="secondary-button" onClick={() => setAction('condition')}>{locale === 'id' ? 'Laporkan masalah' : 'Report issue'}</button>}{canSchedule && <button className="secondary-button" onClick={() => setAction('due-date')}>{locale === 'id' ? 'Ubah tanggal tenggat' : 'Change due date'}</button>}{isStructuredVendorStage && canProgress && <button className="primary-button" onClick={() => setAction('vendor')}>{progressActionLabel}</button>}{isProposalApproval && canDecideProposal && <button className="primary-button" onClick={() => setAction('proposal-decision')}>{progressActionLabel}</button>}{!isStructuredVendorStage && !isProposalApproval && !hasUnresolvedInternalProcurement && (canProgress || canReopen) && <button className="primary-button" onClick={() => setAction('workflow')}>{progressActionLabel}</button>}</footer>
       {action === 'workflow' && <WorkflowActionForm order={order as WorkOrder} currentUser={currentUser} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'vendor' && <VendorActionForm order={order} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
       {action === 'proposal-decision' && <ProposalDecisionForm order={order} locale={locale} onClose={() => setAction(null)} onChanged={async () => { setAction(null); await onChanged(); }} />}
@@ -287,7 +301,7 @@ export default function App() {
     } catch (caught) {
       if (controller.signal.aborted) return;
       setSelected(null);
-      if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+      if (caught instanceof ApiError && caught.status === 401 && !goToHub(caught)) setAuthState('unauthenticated');
     }
   }, []);
 
@@ -302,7 +316,7 @@ export default function App() {
         setSelected(detail);
       }
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
+      if (caught instanceof ApiError && caught.status === 401 && !goToHub(caught)) setAuthState('unauthenticated');
     }
   };
 
@@ -319,8 +333,12 @@ export default function App() {
         await syncFromUrl();
       })
       .catch((caught) => {
-        if (caught instanceof ApiError && caught.status === 401) setAuthState('unauthenticated');
-        else { setStartupError(caught instanceof Error ? caught.message : (locale === 'id' ? 'Aplikasi tidak dapat dimuat.' : 'The application could not be loaded.')); setAuthState('error'); }
+        if (caught instanceof ApiError && caught.status === 401) { if (!goToHub(caught)) setAuthState('unauthenticated'); }
+        else {
+          const noAccess = caught instanceof ApiError && caught.code === 'NO_ACCESS';
+          setStartupError(noAccess ? (locale === 'id' ? 'Anda belum memiliki akses ke Woko. Minta akses melalui admin Hub.' : 'You do not have access to Woko yet. Ask a Hub admin to give you access.') : caught instanceof Error ? caught.message : (locale === 'id' ? 'Aplikasi tidak dapat dimuat.' : 'The application could not be loaded.'));
+          setAuthState('error');
+        }
       });
   }, [syncFromUrl]);
 
@@ -372,18 +390,32 @@ export default function App() {
     try { setPushStatus(await subscribeToPushNotifications()); } catch { setPushStatus('failed'); }
   };
 
-  const logout = async () => { await api('/auth/logout', { method: 'POST' }).catch(() => undefined); setCurrentUser(null); setAuthState('unauthenticated'); };
-  const loginError = new URLSearchParams(window.location.search).get('error') ?? undefined;
+  const logout = async () => {
+    const result = await api<{ loggedOut: boolean; redirectTo?: string }>('/auth/logout', { method: 'POST' }).catch(() => undefined);
+    setCurrentUser(null); setAuthState('unauthenticated');
+    // with the Hub the session is shared, so signing out ends at the Hub
+    if (result?.redirectTo) window.location.assign(result.redirectTo);
+  };
+  // Read once, then taken out of the address so an old failure does not stay on the screen.
+  const [loginError] = useState(() => new URLSearchParams(window.location.search).get('error') ?? undefined);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('error')) return;
+    params.delete('error');
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, []);
   if (authState === 'loading') return <main className="login-page"><section className="login-card loading-card"><span className="loading-logo"><BrandLogo variant="icon" /><span className="loading-orbit" /></span><p>{locale === 'id' ? 'Memeriksa sesi Anda…' : 'Checking your session…'}</p></section></main>;
   if (authState === 'error') return <StartupErrorScreen message={startupError} locale={locale} onRetry={() => window.location.reload()} />;
   if (authState === 'unauthenticated' || !currentUser) return <LoginScreen error={loginError} locale={locale} />;
 
-  const managerAccess = currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER');
-  const visibleOrders = managerAccess && workView === 'mine'
+  const canReadAll = userCan(currentUser, 'work-order.read-all');
+  const canApproveAny = userCan(currentUser, 'work-order.approve');
+  const visibleOrders = canReadAll && workView === 'mine'
     ? orders.filter((order) => order.assignee_id === currentUser.id || order.assignees?.some((person) => person.id === currentUser.id) || order.workers?.some((person) => person.id === currentUser.id) || order.reviewer_id === currentUser.id || order.overseers?.some((person) => person.id === currentUser.id))
     : orders;
   const filtered = visibleOrders.filter((order) => `${order.work_order_number} ${order.title} ${order.building} ${order.room_or_area}`.toLowerCase().includes(deferredQuery));
-  const canCreate = managerAccess || currentUser.roles.includes('PERSON_IN_CHARGE');
+  const canCreate = userCan(currentUser, 'work-order.create');
   const counts = {
     active: filtered.filter((order) => order.status === 'ACTIVE').length,
     overdue: filtered.filter((order) => order.deadlineGroup === 'OVERDUE').length,
@@ -394,7 +426,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <a className="brand" href="#top" aria-label={`${t('productName')} · ${t('appSubtitle')}`}><BrandLogo /></a>
-      <nav aria-label={locale === 'id' ? 'Navigasi utama' : 'Primary navigation'}><button className={`nav-item nav-button${primaryPage === 'work-orders' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /> {t('workOrders')}</button><button className={`nav-item nav-button${primaryPage === 'work-lists' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /> {locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</button><button className={`nav-item nav-button${primaryPage === 'facilities' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /> {locale === 'id' ? 'Fasilitas' : 'Facilities'}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{managerAccess && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{managerAccess && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
+      <nav aria-label={locale === 'id' ? 'Navigasi utama' : 'Primary navigation'}><button className={`nav-item nav-button${primaryPage === 'work-orders' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /> {t('workOrders')}</button><button className={`nav-item nav-button${primaryPage === 'work-lists' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /> {locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</button><button className={`nav-item nav-button${primaryPage === 'facilities' ? ' active' : ''}`} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /> {locale === 'id' ? 'Fasilitas' : 'Facilities'}</button>{canApproveAny && <button className="nav-item nav-button" onClick={() => setShowApprovals(true)}><CheckCircle2 /> {t('approvals')}<span className="nav-count">{orders.filter((order) => order.workflow_stage === 'APPROVAL' || order.workflow_stage === 'REVIEW').length}</span></button>}<button className="nav-item nav-button" onClick={() => setShowNotifications(true)}><Bell /> {t('notifications')}{unreadNotifications > 0 && <span className="nav-count">{unreadNotifications}</span>}</button>{canReadAll && <button className="nav-item nav-button" onClick={() => setShowReports(true)}><BarChart3 /> {t('reports')}</button>}{canReadAll && <button className="nav-item nav-button" onClick={() => setShowOrganizationSettings(true)}><Settings /> {t('organizationSettings')}</button>}<button className="nav-item nav-button" onClick={() => void logout()}><LogOut /> {t('signOut')}</button></nav>
       <div className="sidebar-footer"><button className="quiet-language-button" onClick={changeLocale} title={t('language')}><Languages /> {locale === 'id' ? 'English' : 'Bahasa Indonesia'}</button><div className="sidebar-user"><Avatar name={currentUser.fullName} photoUrl={currentUser.profilePhotoUrl} /><strong>{currentUser.fullName}</strong></div></div>
     </aside>
 
@@ -413,7 +445,7 @@ export default function App() {
             <article><span className="metric-icon sage"><ClipboardCheck /></span><span><strong>{counts.review}</strong><small>{t('review')}</small></span></article>
           </section>
 
-          {managerAccess && <div className="work-scope-control" aria-label={locale === 'id' ? 'Cakupan pekerjaan' : 'Work-order scope'}><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}>{t('allWork')}</button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}>{t('myWork')}</button></div>}
+          {canReadAll && <div className="work-scope-control" aria-label={locale === 'id' ? 'Cakupan pekerjaan' : 'Work-order scope'}><button className={workView === 'all' ? 'active' : ''} onClick={() => setWorkView('all')}>{t('allWork')}</button><button className={workView === 'mine' ? 'active' : ''} onClick={() => setWorkView('mine')}>{t('myWork')}</button></div>}
           <div className="toolbar"><label className="search-field"><Search /><span className="sr-only">{t('search')}</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('search')} /></label><button className="filter-button"><Filter /> <span>{t('filter')}</span></button></div>
 
           <div className="work-sections" id="work">
@@ -429,11 +461,11 @@ export default function App() {
     </main>
 
     {canCreate && primaryPage === 'work-orders' && <button className="fab" aria-label={t('create')} onClick={() => setShowCreate(true)} disabled={!references}><Plus /></button>}
-    <nav className="bottom-nav" aria-label={locale === 'id' ? 'Navigasi seluler' : 'Mobile navigation'}><button className={primaryPage === 'work-orders' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button className={primaryPage === 'work-lists' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /><span>{locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</span></button><button className={primaryPage === 'facilities' ? 'active' : ''} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /><span>{locale === 'id' ? 'Fasilitas' : 'Facilities'}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{managerAccess && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{managerAccess && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
+    <nav className="bottom-nav" aria-label={locale === 'id' ? 'Navigasi seluler' : 'Mobile navigation'}><button className={primaryPage === 'work-orders' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-orders')}><BriefcaseBusiness /><span>{t('workOrders')}</span></button><button className={primaryPage === 'work-lists' ? 'active' : ''} onClick={() => navigatePrimaryPage('work-lists')}><ClipboardCheck /><span>{locale === 'id' ? 'Pekerjaan Rutin' : 'Routine Work'}</span></button><button className={primaryPage === 'facilities' ? 'active' : ''} onClick={() => navigatePrimaryPage('facilities')}><PackagePlus /><span>{locale === 'id' ? 'Fasilitas' : 'Facilities'}</span></button><button onClick={() => setShowNotifications(true)}><Bell /><span>{t('notifications')}</span></button>{canApproveAny && <button onClick={() => setShowApprovals(true)}><CheckCircle2 /><span>{t('approvals')}</span></button>}{canReadAll && <button onClick={() => setShowReports(true)}><BarChart3 /><span>{t('reports')}</span></button>}</nav>
     {selected && references && <DetailDrawer order={selected} locale={locale} currentUser={currentUser} references={references} onClose={() => setSelected(null)} onChanged={loadOrders} onDelete={deleteOrder} />}
-    {showOrganizationSettings && managerAccess && references && <OrganizationSettings references={references} administrator={currentUser.roles.includes('ADMINISTRATOR')} locale={locale} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
-    {showApprovals && currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER') && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
-    {showNotifications && <NotificationsView locale={locale} onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('digest'); window.history.replaceState({}, '', url); setShowNotifications(false); }} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={currentUser.roles.includes('ADMINISTRATOR')} />}
+    {showOrganizationSettings && canReadAll && references && <OrganizationSettings references={references} administrator={userCan(currentUser, 'settings.manage')} managedByCentral={currentUser.authMode === 'hub'} locale={locale} onClose={() => setShowOrganizationSettings(false)} onChanged={loadReferences} />}
+    {showApprovals && canApproveAny && <ApprovalsView currentUser={currentUser} locale={locale} onClose={() => setShowApprovals(false)} onOpenOrder={(order) => { setShowApprovals(false); setSelected(order); }} />}
+    {showNotifications && <NotificationsView locale={locale} onClose={() => { const url = new URL(window.location.href); url.searchParams.delete('digest'); window.history.replaceState({}, '', url); setShowNotifications(false); }} onChanged={() => void api<{ count: number }>('/notifications/unread-count').then((value) => setUnreadNotifications(value.count))} canRetryEmail={userCan(currentUser, 'settings.manage')} />}
     {showReports && <ReportsView locale={locale} onClose={() => setShowReports(false)} />}
 
     {showCreate && references && <div className="sheet-backdrop" onMouseDown={() => setShowCreate(false)}><div onMouseDown={(event) => event.stopPropagation()}><CreateWorkOrderForm references={references} currentUser={currentUser} locale={locale} onClose={() => setShowCreate(false)} onCreated={async (id) => { setShowCreate(false); await loadOrders(); setSelected(await api<Order>(`/work-orders/${id}`)); }} /></div></div>}

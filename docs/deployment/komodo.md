@@ -150,7 +150,7 @@ Important:
 - `APP_BASE_URL` and `WEB_ORIGIN` must be the exact same public HTTPS origin.
 - Do not add a trailing slash to either URL.
 - `DOCKER_DATABASE_URL` must use `postgres:5432`, not `localhost`.
-- Keep `AUTH_MODE=google` in production.
+- Keep `AUTH_MODE=google` until Hub sign-in is proven in staging, then switch to `AUTH_MODE=hub` (see [Sign in through the Hub](#sign-in-through-the-hub)).
 - Port `5433` is bound only to host loopback by the supplied Compose file.
 - Choose another unused host port if `8080` is already occupied.
 
@@ -211,6 +211,29 @@ curl --fail https://woko.example.org/
 ```
 
 In Komodo, inspect the `migrate`, `api`, and `web` logs if deployment fails. Do not bypass a failed migration.
+
+### Send the permission list to Central
+
+Woko publishes its permission list to Central after each deploy (Access Standard AS-4). It is off by default. To turn it on:
+
+1. Create an API client in Central for the Woko application with the scopes `application_permissions:write` and `application_entitlements:read`.
+2. Add `CENTRAL_API_BASE_URL` and `CENTRAL_API_TOKEN` to the protected Stack environment. Use the protected variable mechanism from step 3 for the token.
+3. Add `COMPOSE_PROFILES=central` to the Stack environment.
+
+The one-shot `permissions` service then runs after `api` is healthy, retries while Central is not reachable, and fails the deployment when Central refuses the list. Add `permissions` to **Ignore services** next to `migrate`, since it exits after it finishes. The starting roles come from `role-presets.json` (see the README).
+
+### Sign in through the Hub
+
+Set this up in staging first.
+
+1. In Central, register the `woko` application with its sign-in address and the sign-in way Shared Hub Session.
+2. Run the permission sync (above), then create the roles with `seed:application-roles role-presets.json` and the access groups that decide who gets which role.
+3. Give the API client the scope `application_entitlements:read`.
+4. Woko must be served from a subdomain of the Hub's parent domain, or the shared session cookie is not sent.
+5. Add `HUB_BASE_URL`, `CENTRAL_ORGANIZATION_ID` and, if the Hub uses a custom cookie name, `HUB_ACCESS_COOKIE_NAME` to the Stack environment, and set `AUTH_MODE=hub`.
+6. Before the switch, run `npm run central:sync -- --dry-run` against the staging database and look at the users Central does not match. A different email in Central creates a second account for the same person.
+
+Switching back to `AUTH_MODE=google` restores the old sign-in. Local users keep their rights as last copied from Central.
 
 ## 9. Configure automatic deployment from GitHub
 

@@ -130,7 +130,7 @@ export async function generateWorkListNotifications(localDate: string, now = new
       from work_list_occurrences o
       cross join lateral unnest(o.worker_ids) as worker(worker_id)
       join users u on u.id=worker.worker_id and u.active
-      join user_roles role on role.user_id=u.id and role.role='WORKER'
+      join user_permissions role on role.user_id=u.id and role.permission = 'work-list.be-worker'
       where o.status='OPEN' and (o.due_at at time zone ${config.APP_TIME_ZONE})::date=${localDate}::date
         and exists (select 1 from work_list_occurrence_items i where i.occurrence_id=o.id and i.status is null)
       group by u.id
@@ -162,8 +162,8 @@ export async function generateWorkListNotifications(localDate: string, now = new
       select distinct u.id, 'WORK_LIST_MISSED_DIGEST', ${`Missed Routine Work · ${digest.due_date}`},
         ${`${digest.count} Routine Work due ${digest.due_date} were missed: ${digest.examples.join(', ')}${digest.count > 4 ? ', and more' : ''}. No worker action is required; this digest is for facilities monitoring only.`},
         ${`work-list-missed-digest:${digest.due_date}:`} || u.id::text
-      from users u join user_roles r on r.user_id=u.id
-      where u.active and r.role='FACILITIES_MANAGER'
+      from users u join user_permissions r on r.user_id=u.id
+      where u.active and r.permission='work-list.receive-digest'
       on conflict (idempotency_key) where idempotency_key is not null do nothing
     `;
   }
@@ -174,7 +174,7 @@ export async function generateWorkListNotifications(localDate: string, now = new
   await sql`
     insert into notifications (recipient_user_id, type, title, message, idempotency_key)
     select u.id, 'WORK_LIST_WEEKLY_DIGEST', 'Weekly Routine Work activity', ${message}, 'work-list-digest:' || u.id::text || ':' || ${localDate}
-    from users u join user_roles r on r.user_id=u.id where u.active and r.role='FACILITIES_MANAGER'
+    from users u join user_permissions r on r.user_id=u.id where u.active and r.permission='work-list.receive-digest'
     on conflict (idempotency_key) where idempotency_key is not null do nothing
   `;
 }

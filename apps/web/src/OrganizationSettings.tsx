@@ -7,12 +7,12 @@ import { WorkListTemplateForm } from './WorkListTemplateForm';
 import type { Locale } from './i18n';
 import type { ReferenceData } from './types';
 
-type OrganizationSettingsProps = { references: ReferenceData; administrator: boolean; locale?: Locale; onClose: () => void; onChanged: () => Promise<void> | void };
+type OrganizationSettingsProps = { references: ReferenceData; administrator: boolean; managedByCentral?: boolean; locale?: Locale; onClose: () => void; onChanged: () => Promise<void> | void };
 
-export function OrganizationSettings({ references, administrator, locale = 'en', onClose, onChanged }: OrganizationSettingsProps) {
+export function OrganizationSettings({ references, administrator, managedByCentral = false, locale = 'en', onClose, onChanged }: OrganizationSettingsProps) {
   const [section, setSection] = useState<'hub' | 'users' | 'locations' | 'work' | 'work-lists'>('hub');
   const id = locale === 'id';
-  if (administrator && section === 'users') return <AdminUsers locale={locale} onClose={() => setSection('hub')} onChanged={onChanged} />;
+  if (administrator && section === 'users') return <AdminUsers locale={locale} managedByCentral={managedByCentral} onClose={() => setSection('hub')} onChanged={onChanged} />;
   if (administrator && section === 'locations') return <AdminLocations locale={locale} onClose={() => setSection('hub')} onChanged={onChanged} />;
   if (administrator && section === 'work') return <AdminWorkSettings locale={locale} onClose={() => setSection('hub')} onChanged={onChanged} />;
   if (section === 'work-lists') return <WorkListTemplateForm references={references} locale={locale} onClose={() => setSection('hub')} />;

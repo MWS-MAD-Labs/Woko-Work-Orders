@@ -1,8 +1,10 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { canCreateWorkOrder, type Role } from '@woko/domain';
+import { can, canAny, isPermission, type Permission } from '@woko/domain';
 import { OAuth2Client } from 'google-auth-library';
 import { config } from './config.js';
+import { AccountConflictError, hubAccess, provisionHubUser, type LocalHubUser } from './hub-access.js';
+import type { AccessResult } from 'mws-central-auth/access';
 import { sql } from './database/client.js';
 
 export interface CurrentUser {
@@ -10,7 +12,7 @@ export interface CurrentUser {
   email: string;
   fullName: string;
   profilePhotoUrl?: string;
-  roles: Role[];
+  permissions: Permission[];
   preferredLocale: 'id' | 'en';
   sessionExpiresAt: string;
 }
@@ -59,10 +61,10 @@ export function oauthClient(redirectUri = `${config.APP_BASE_URL}/api/v1/auth/ca
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   if (config.AUTH_MODE === 'test') {
     const userId = request.headers['x-test-user-id'] ?? '30000000-0000-4000-8000-000000000001';
-    const rows = await sql<Array<{ id: string; email: string; full_name: string; active: boolean; preferred_locale: 'id' | 'en'; roles: Role[] }>>`
+    const rows = await sql<Array<{ id: string; email: string; full_name: string; active: boolean; preferred_locale: 'id' | 'en'; permissions: string[] }>>`
       select u.id, u.email::text, u.full_name, u.active, u.preferred_locale,
-        coalesce(array_agg(ur.role) filter (where ur.role is not null), '{}') as roles
-      from users u left join user_roles ur on ur.user_id = u.id
+        coalesce(array_agg(up.permission) filter (where up.permission is not null), '{}') as permissions
+      from users u left join user_permissions up on up.user_id = u.id
       where u.id = ${userId}::uuid
       group by u.id
     `;
@@ -72,12 +74,14 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
       id: user.id,
       email: user.email,
       fullName: user.full_name,
-      roles: user.roles,
+      permissions: user.permissions.filter(isPermission),
       preferredLocale: user.preferred_locale,
       sessionExpiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
     };
-    return;
+    return requireWokoAccess(request, reply);
   }
+
+  if (config.AUTH_MODE === 'hub') return authenticateWithHub(request, reply);
 
   if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
     const origin = request.headers.origin;
@@ -88,12 +92,12 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
 
   const token = request.cookies[sessionCookieName];
   if (!token) return reply.code(401).send({ error: { code: 'AUTHENTICATION_REQUIRED', message: 'Sign in with your Millennia World School account.', requestId: request.id } });
-  const rows = await sql<Array<{ id: string; email: string; full_name: string; profile_photo_url: string | null; active: boolean; preferred_locale: 'id' | 'en'; expires_at: string; roles: Role[] }>>`
+  const rows = await sql<Array<{ id: string; email: string; full_name: string; profile_photo_url: string | null; active: boolean; preferred_locale: 'id' | 'en'; expires_at: string; permissions: string[] }>>`
     select u.id, u.email::text, u.full_name, u.profile_photo_url, u.active, u.preferred_locale, s.expires_at::text,
-      coalesce(array_agg(ur.role) filter (where ur.role is not null), '{}') as roles
+      coalesce(array_agg(up.permission) filter (where up.permission is not null), '{}') as permissions
     from user_sessions s
     join users u on u.id = s.user_id
-    left join user_roles ur on ur.user_id = u.id
+    left join user_permissions up on up.user_id = u.id
     where s.token_hash = ${sha256(token)} and s.revoked_at is null and s.expires_at > now()
     group by u.id, s.id
   `;
@@ -108,26 +112,85 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     email: user.email,
     fullName: user.full_name,
     profilePhotoUrl: user.profile_photo_url ?? undefined,
-    roles: user.roles,
+    permissions: user.permissions.filter(isPermission),
     preferredLocale: user.preferred_locale,
     sessionExpiresAt: user.expires_at,
   };
+  return requireWokoAccess(request, reply);
 }
 
-export async function requireWorkOrderCreator(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!canCreateWorkOrder(request.currentUser.roles)) {
-    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Administrator, Facilities Manager, or PIC permission is required.', requestId: request.id } });
+const provisioned = new WeakMap<AccessResult, LocalHubUser>();
+
+// The Hub's shared session says who it is, Central's entitlement says what they may do (AS-10, AS-11). The answer is
+// kept for a minute by the resolver, and the local user for as long as that answer.
+async function authenticateWithHub(request: FastifyRequest, reply: FastifyReply) {
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    const origin = request.headers.origin;
+    if (!origin || new URL(origin).origin !== new URL(config.APP_BASE_URL).origin) {
+      return reply.code(403).send({ error: { code: 'INVALID_ORIGIN', message: 'The request origin is not allowed.', requestId: request.id } });
+    }
+  }
+  const access = hubAccess();
+  const claims = await access.claims(request.headers.cookie);
+  if (!claims) return reply.code(401).send({ error: { code: 'HUB_SESSION_REQUIRED', message: 'Sign in through the Hub.', requestId: request.id } });
+  const result = await access.resolve(claims.sub);
+  if (result.status === 'unavailable') {
+    request.log.warn({ error: result.error instanceof Error ? result.error.message : 'unknown' }, 'Central could not be asked for the entitlement');
+    return reply.code(503).send({ error: { code: 'CENTRAL_UNAVAILABLE', message: 'Access could not be checked right now. Try again in a moment.', requestId: request.id } });
+  }
+  if (result.status === 'denied') {
+    return reply.code(403).send({ error: { code: 'NO_ACCESS', message: 'You do not have access to Woko.', details: { reason: result.reason }, requestId: request.id } });
+  }
+  let user = provisioned.get(result);
+  if (!user) {
+    try {
+      user = await provisionHubUser({ personId: claims.sub, email: claims.email }, result.permissions);
+    } catch (error) {
+      if (error instanceof AccountConflictError) return reply.code(409).send({ error: { code: 'ACCOUNT_CONFLICT', message: error.message, requestId: request.id } });
+      throw error;
+    }
+    provisioned.set(result, user);
+  }
+  request.currentUser = {
+    id: user.id,
+    email: user.email,
+    fullName: user.fullName,
+    profilePhotoUrl: user.profilePhotoUrl,
+    permissions: result.permissions.filter(isPermission),
+    preferredLocale: user.preferredLocale,
+    sessionExpiresAt: new Date(claims.exp * 1000).toISOString(),
+  };
+  return requireWokoAccess(request, reply);
+}
+
+// Access Standard AS-3: `woko.use` is the right to be in the app at all. Without it nothing else counts.
+async function requireWokoAccess(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (!can(request.currentUser.permissions, 'woko.use')) {
+    await reply.code(403).send({ error: { code: 'NO_ACCESS', message: 'You do not have access to Woko.', requestId: request.id } });
   }
 }
 
-export async function requireManager(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!request.currentUser.roles.some((role) => role === 'ADMINISTRATOR' || role === 'FACILITIES_MANAGER')) {
-    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Facilities Manager permission is required.', requestId: request.id } });
+// In hub mode who may do what is decided in Central, so the screens that grant access here are read only (AS-1).
+export async function refuseWhenAccessIsManagedByCentral(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (config.AUTH_MODE === 'hub') {
+    await reply.code(409).send({ error: { code: 'MANAGED_BY_CENTRAL', message: 'Who may use Woko is set in Central. Change it there.', requestId: request.id } });
   }
 }
 
-export async function requireAdministrator(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  if (!request.currentUser.roles.includes('ADMINISTRATOR')) {
-    await reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'Administrator permission is required.', requestId: request.id } });
-  }
+const forbidden = (request: FastifyRequest, reply: FastifyReply) =>
+  reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'You do not have permission to do this.', requestId: request.id } });
+
+// The gate of a route: it needs this permission.
+export function requirePermission(permission: Permission) {
+  return async function requireThePermission(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (!can(request.currentUser.permissions, permission)) await forbidden(request, reply);
+  };
+}
+
+// The gate of a route that several kinds of people use: any one of these will do. Whether the person belongs to this
+// particular work order is checked inside the route.
+export function requireAnyPermission(wanted: readonly Permission[]) {
+  return async function requireOneOfThePermissions(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+    if (!canAny(request.currentUser.permissions, wanted)) await forbidden(request, reply);
+  };
 }

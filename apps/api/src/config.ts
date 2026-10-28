@@ -10,7 +10,15 @@ const schema = z.object({
   WEB_ORIGIN: z.string().default('http://localhost:5173'),
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).default('postgres://woko:woko@localhost:5432/woko'),
-  AUTH_MODE: z.enum(['google', 'test']).default('google'),
+  AUTH_MODE: z.enum(['google', 'hub', 'test']).default('google'),
+  HUB_BASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  HUB_ACCESS_COOKIE_NAME: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  CENTRAL_API_BASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  CENTRAL_API_TOKEN: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  CENTRAL_ORGANIZATION_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  CENTRAL_APPLICATION_ID: z.string().min(1).default('woko'),
+  // How often the people with access are read from Central in hub mode. 0 turns it off.
+  CENTRAL_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(0).max(1440).default(5),
   ALLOWED_GOOGLE_DOMAIN: z.string().default('millennia21.id'),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
@@ -39,6 +47,10 @@ export const config = schema.transform((value) => ({
   WEB_PUSH_ENABLED: Boolean(value.WEB_PUSH_VAPID_PUBLIC_KEY && value.WEB_PUSH_VAPID_PRIVATE_KEY),
 })).parse(process.env);
 
+if (config.AUTH_MODE === 'hub') {
+  const missing = (['HUB_BASE_URL', 'CENTRAL_API_BASE_URL', 'CENTRAL_API_TOKEN'] as const).filter((name) => !config[name]);
+  if (missing.length > 0) throw new Error(`AUTH_MODE=hub requires ${missing.join(', ')}.`);
+}
 if (config.NODE_ENV === 'production' && config.AUTH_MODE === 'test') {
   throw new Error('Test authentication cannot be enabled in production.');
 }

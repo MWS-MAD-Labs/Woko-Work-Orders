@@ -1,0 +1,31 @@
+{
+  "application": "woko",
+  "manifest": "packages/domain/dist/index.js",
+  "manifestExport": "permissionManifest",
+  "presets": "role-presets.json",
+  "source": {
+    "roots": ["apps/api/src", "apps/web/src"],
+    "manifestFiles": ["packages/domain/src/permissions.ts"]
+  },
+  "roleNames": ["ADMINISTRATOR", "FACILITIES_MANAGER", "PERSON_IN_CHARGE", "OVERSEER"],
+  "probe": {
+    "module": "apps/api/src/scripts/access-probe.ts",
+    "open": [
+      "GET /health/*",
+      "GET /api/v1/me",
+      "GET /api/v1/reference-data",
+      "GET /api/v1/auth/*",
+      "POST /api/v1/auth/logout",
+      "GET /api/v1/google-picker/config",
+      "PATCH /api/v1/me/preferences",
+      "GET /api/v1/notifications*",
+      "PUT /api/v1/notifications/push-subscription",
+      "DELETE /api/v1/notifications/push-subscription",
+      "POST /api/v1/notifications/read-all",
+      "POST /api/v1/notifications/*/read",
+      "POST /api/v1/notifications/*/acknowledge",
+      "POST /api/v1/work-lists/*/evidence",
+      "POST /api/v1/work-lists/*/submit"
+    ]
+  }
+}

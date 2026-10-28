@@ -1,13 +1,14 @@
-import type { AttachmentContext, EvidenceType, InternalProcurementStatus, Priority, Role, WorkflowStage, WorkType } from '@woko/domain';
+import type { AttachmentContext, EvidenceType, InternalProcurementStatus, Permission, Priority, WorkflowStage, WorkType } from '@woko/domain';
 
 export interface CurrentUser {
   id: string;
   email: string;
   fullName: string;
   profilePhotoUrl?: string;
-  roles: Role[];
+  permissions: Permission[];
   preferredLocale: 'id' | 'en';
   sessionExpiresAt: string;
+  authMode?: 'google' | 'hub' | 'test';
 }
 
 export interface AdminUser {
@@ -18,7 +19,7 @@ export interface AdminUser {
   identity_linked: boolean;
   last_login_at: string | null;
   created_at: string;
-  roles: Role[];
+  permissions: Permission[];
 }
 
 export interface LocationOption {
@@ -38,7 +39,7 @@ export interface WorkOption {
 }
 
 export interface ReferenceData {
-  users: Array<{ id: string; full_name: string; email: string; roles: Role[] }>;
+  users: Array<{ id: string; full_name: string; email: string; permissions: Permission[] }>;
   campuses: Array<{ id: string; name: string }>;
   buildings: Array<{ id: string; campus_id: string; name: string }>;
   locationOptions: LocationOption[];

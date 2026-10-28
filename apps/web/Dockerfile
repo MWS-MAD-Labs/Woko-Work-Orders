@@ -5,7 +5,8 @@ ENV VITE_API_URL=$VITE_API_URL
 COPY package.json package-lock.json* tsconfig.base.json ./
 COPY packages/domain/package.json packages/domain/tsconfig.json ./packages/domain/
 COPY apps/web/package.json apps/web/tsconfig.json apps/web/vite.config.ts apps/web/index.html ./apps/web/
-RUN npm install
+# mws-central-auth is installed from GitHub, which needs git.
+RUN apk add --no-cache git && npm install
 COPY packages/domain/src ./packages/domain/src
 COPY apps/web/src ./apps/web/src
 COPY apps/web/public ./apps/web/public
