@@ -57,6 +57,8 @@ export async function buildApp(options: { prepare?: (app: ReturnType<typeof Fast
   });
 
   app.get('/health/live', async () => ({ status: 'ok' }));
+  // Public: the banner on a test stack reads this before anyone has signed in.
+  app.get('/api/v1/public-config', async () => ({ production_url: config.PRODUCTION_URL?.replace(/\/$/, '') ?? null }));
   app.get('/health/ready', async (_request, reply) => {
     try {
       await sql`select 1`;

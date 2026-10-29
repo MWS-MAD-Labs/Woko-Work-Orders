@@ -262,6 +262,8 @@ The maintained workflow is `.github/workflows/deploy-komodo.yml`. It runs on pus
 Staging is a second Stack and a second Procedure, built from the same `compose.yaml`:
 
 1. Create a Stack for branch `staging` with its own project name (not `woko`, so containers and the database volume stay apart), its own `WEB_PORT` that no other stack on the host uses, and a Stack environment for staging (`AUTH_MODE=hub`, the Hub and Central values, the staging `APP_BASE_URL` and `WEB_ORIGIN`).
+
+On the staging Stack also set `PRODUCTION_URL=https://woko.example.org` (the address of the real Woko, no trailing slash). The app then shows a strip at the top saying this is a test version, with a link to that address. Leave it empty on the real Stack and nothing is shown.
 2. Create a Procedure `Woko Staging Redeploy` with a `DeployStack` execution for that Stack, a dedicated webhook secret, and the listener URL for branch `staging`:
 
    ```text
