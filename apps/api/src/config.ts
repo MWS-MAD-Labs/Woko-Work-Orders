@@ -9,6 +9,8 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
   WEB_ORIGIN: z.string().default('http://localhost:5173'),
   APP_BASE_URL: z.string().url().default('http://localhost:5173'),
+  // Set on a test (staging) stack only: the address of the real Woko, shown as a banner. Empty on the real one.
+  PRODUCTION_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   DATABASE_URL: z.string().min(1).default('postgres://woko:woko@localhost:5432/woko'),
   AUTH_MODE: z.enum(['google', 'hub', 'test']).default('google'),
   HUB_BASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
+import { config } from './config.js';
 
 const app = await buildApp();
 
@@ -25,5 +26,24 @@ describe('validation errors', () => {
         message: 'Please check the submitted information.',
       },
     });
+  });
+});
+
+describe('public config', () => {
+  it('has no production address on the real stack', async () => {
+    const response = await app.inject({ method: 'GET', url: '/api/v1/public-config' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ production_url: null });
+  });
+
+  it('gives the production address of a test stack without a trailing slash', async () => {
+    const mutable = config as { PRODUCTION_URL?: string };
+    mutable.PRODUCTION_URL = 'https://woko.example.org/';
+    try {
+      const response = await app.inject({ method: 'GET', url: '/api/v1/public-config' });
+      expect(response.json()).toEqual({ production_url: 'https://woko.example.org' });
+    } finally {
+      mutable.PRODUCTION_URL = undefined;
+    }
   });
 });
