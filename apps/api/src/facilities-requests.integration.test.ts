@@ -76,6 +76,18 @@ describe('facilities route integration', () => {
     expect(assigned[0]?.approver_id).toBe(managerId);
   });
 
+  it('only routes to a default approver, never to another manager or administrator', async () => {
+    const assetId = await createAsset();
+    await sql`delete from user_permissions where user_id = any(${[managerId, secondManagerId]}::uuid[]) and permission = 'facilities.default-approver'`;
+    try {
+      const refused = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
+      expect(refused.statusCode).toBe(422);
+      expect((await body(refused)).error?.code).toBe('NO_ACTIVE_MANAGER');
+    } finally {
+      await sql`insert into user_permissions (user_id, permission) select u, 'facilities.default-approver' from unnest(${[managerId, secondManagerId]}::uuid[]) u on conflict do nothing`;
+    }
+  });
+
   it('atomically prevents concurrent overbooking without facilities configuration', async () => {
     const assetId = await createAsset(1);
     const responses = await Promise.all([

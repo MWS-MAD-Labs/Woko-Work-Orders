@@ -112,7 +112,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     const input = requestSchema.parse(request.body); const check = validateBookingTimes(input);
     if (!check.ok) return sendError(reply, request.id, 422, check.code, check.code === 'INVALID_BOOKING_TIME' ? 'Choose a future start and an end after it.' : 'Bookings may end no later than two calendar months from today.');
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const managers = await tx<Array<{ id: string }>>`select u.id from users u where u.active and exists (select 1 from user_permissions up where up.user_id = u.id and up.permission = 'facilities.manage') order by case when exists (select 1 from user_permissions up where up.user_id = u.id and up.permission = 'facilities.default-approver') then 0 else 1 end, u.id limit 1 for share`;
+      const managers = await tx<Array<{ id: string }>>`select u.id from users u where u.active and exists (select 1 from user_permissions up where up.user_id = u.id and up.permission = 'facilities.default-approver') order by u.id limit 1 for share`;
       const manager = managers[0]; if (!manager) return { error: 'NO_ACTIVE_MANAGER' };
       const assets = await tx<Array<{ id: string; name: string; quantity: number }>>`select id,name,quantity from facilities_assets where id=any(${input.items.map((item) => item.assetId)}::uuid[]) and active=true order by id for update`;
       if (assets.length !== input.items.length) return { error: 'INVALID_ASSET' };
@@ -126,7 +126,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
       const row = created[0]!; for (const item of input.items) await tx`insert into facilities_request_items (request_id,asset_id,quantity) values (${row.id},${item.assetId},${item.quantity})`;
       await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${row.id},${request.currentUser.id},'FACILITIES_REQUEST_CREATED',${tx.json(input)},${request.id})`; return { id: row.id };
     });
-    if (hasError(result)) return sendError(reply, request.id, 422, result.error, result.error === 'NO_ACTIVE_MANAGER' ? 'An active Facilities Manager or Administrator is required before requests can be submitted.' : result.error === 'INVALID_ASSET' ? 'Select active assets only.' : `${result.assetName!} is not available for the requested time.`);
+    if (hasError(result)) return sendError(reply, request.id, 422, result.error, result.error === 'NO_ACTIVE_MANAGER' ? 'An active Facilities Manager is required before requests can be submitted.' : result.error === 'INVALID_ASSET' ? 'Select active assets only.' : `${result.assetName!} is not available for the requested time.`);
     return reply.code(201).send({ data: result });
   });
   app.post('/facilities/requests/:id/decision', { preHandler: requirePermission('facilities.manage') }, async (request, reply) => {
