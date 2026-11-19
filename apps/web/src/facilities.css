@@ -39,8 +39,12 @@
 .facility-inline-form > label, .facility-return-form > label, .facility-return-form > h4 { flex-basis: 100%; margin: 0; }
 .facility-return-form > div { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(110px, 1fr); gap: 8px; align-items: center; }
 .facility-return-form > div > input:last-child { grid-column: 1 / -1; }
-.facility-inventory-add { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 95px auto; gap: 8px; margin-bottom: 24px; }
-.facility-inventory-list > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 85px auto 44px; gap: 8px; align-items: center; padding-top: 14px; border-top: 1px solid var(--line); }
+.facility-inventory-add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 80px; gap: 8px; margin-bottom: 24px; }
+.facility-inventory-list > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 75px; gap: 8px; align-items: center; padding-top: 14px; border-top: 1px solid var(--line); }
+.facility-asset-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, .7fr); gap: 8px; margin-bottom: 14px; }
+.facility-inventory-editor { margin: 0; padding: 0; border: 0; min-width: 0; }
+.facility-asset-filters input, .facility-asset-filters select { width: 100%; min-width: 0; min-height: 44px; border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: white; color: inherit; }
+.facility-summary > .facility-asset-filters { grid-template-columns: minmax(0, 1fr); }
 .facilities-view .success-message { padding: 12px; border-radius: 10px; background: #eaf1ec; color: #426451; }
 .facilities-view [hidden] { display: none !important; }
 @media (max-width: 1100px) { .facilities-layout { grid-template-columns: minmax(0, 1fr); } .facility-summary { order: 2; } .facilities-header { align-items: start; flex-direction: column; } }

@@ -250,6 +250,7 @@ async function deliverNotificationEmail(notificationId: string) {
 }
 
 export function notificationTargetUrl(type: string, workOrderId: string | null): string | undefined {
+  if (type === 'FACILITIES_BOOKING_REQUESTED' || type === 'FACILITIES_BOOKING_APPROVED') return '/?view=facilities';
   if (type === 'WORK_LIST_DAILY_REMINDER') return '/?view=work-lists';
   return workOrderId ? `/?workOrder=${encodeURIComponent(workOrderId)}` : undefined;
 }

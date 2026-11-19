@@ -16,6 +16,16 @@ const base = {
 };
 
 describe('notification email templates', () => {
+  it.each(['FACILITIES_BOOKING_REQUESTED', 'FACILITIES_BOOKING_APPROVED'])('renders %s with a booking action and no work-order fields', (type) => {
+    const content = renderNotificationEmail({ ...base, type, title: 'Facilities booking', message: '<Projector> · Hall · 25 Oct 2026, 09:00–12:00 WIB', workOrderId: null, workOrderNumber: null, workOrderTitle: null });
+    expect(content.html).toContain('view=facilities');
+    expect(content.html).toContain('Open facilities bookings');
+    expect(content.html).toContain('&lt;Projector&gt;');
+    expect(content.text).not.toContain('Priority:');
+    expect(content.html).not.toContain('Open work order');
+    const indonesian = renderNotificationEmail({ ...base, type, locale: 'id', workOrderId: null });
+    expect(indonesian.html).toContain('Buka peminjaman fasilitas');
+  });
   it('renders frontend-aligned MWS visual tokens and task-card details', () => {
     const content = renderNotificationEmail(base);
     expect(content.html).toContain('#176f95');
