@@ -5,6 +5,8 @@ Facilities bookings use a local PostgreSQL asset register; no external asset ser
 ## Setup and permissions
 
 - Managers and administrators maintain asset names, unique codes, quantities and active status.
+- Managers can set a category on each asset, typing a new name or reusing a suggested existing category. Existing assets and blank category inputs use `Uncategorized`. Apply migration `0031_facilities_asset_categories.sql` before deploying this version. Legacy updates without a category retain the existing value.
+- Quick search matches item name, code, or category (case-insensitive). Category filters are available in inventory, the asset summary and booking selection; filtering does not discard selected booking items.
 - Users submit bookings and see their own requests; managers and administrators see all requests.
 - Every active user with the global `FACILITIES_MANAGER` or `ADMINISTRATOR` role can approve/reject, inspect returns, and resolve return issues. No facilities-specific manager assignment is required.
 - Existing `approver_id` values are deterministic routing metadata only (active Facilities Manager first, then Administrator); they do not grant exclusive approval authority.
@@ -13,6 +15,7 @@ Facilities bookings use a local PostgreSQL asset register; no external asset ser
 
 - Start must be in the future and end must follow start. Both endpoints must fall no later than the end of the date two calendar months ahead in Asia/Jakarta, clamped at month end.
 - Booking form datetime inputs represent Jakarta school time.
+- Booking cards also display Jakarta time, explicitly marked WIB (UTC+7), independent of the browser timezone. Same-day bookings are supported when the end time is later than the start time; consecutive reservations may share an endpoint.
 - Pending and approved reservations hold inventory for their booking intervals. Concurrent requests serialize on asset rows to prevent overbooking.
 - Approved overdue equipment remains unavailable until inspected. Unresolved damaged/missing returns conservatively hold the full borrowed quantity for the affected asset line until a manager resolves it; per-unit mixed-condition returns are not supported.
 - Requesters may cancel pending bookings. A global manager must provide a decision note, and cannot approve a booking that has already started.
@@ -33,4 +36,12 @@ DATABASE_URL=postgres://hermes@127.0.0.1:55439/woko_facilities_test AUTH_MODE=te
 
 Integration tests reset facilities tables in the test database. The `work_order_settings` table and default-manager column remain from applied migration `0026_facilities_requests.sql` for compatibility, but facilities requests no longer consult them. Tests are excluded from the default unit-test command and require an explicit integration command. Test identities via `x-test-user-id` are for AUTH_MODE=test only.
 
-Facilities bookings are separate from repair work orders. This feature does not automatically import assets, deliver notification emails or mark overdue bookings returned. Physical return verification remains the responsibility of any active global manager.
+## Booking notifications
+
+- A new booking creates an in-app notification for every active user with `facilities.manage`, including administrators with that permission.
+- Approval creates an in-app notification for the requester, including booking purpose, location, Jakarta start/end times and the decision note. Failed or repeated decisions do not create additional approval notifications.
+- Notifications are inserted atomically with the booking change. Existing database triggers enqueue email and optional web push jobs. Email and in-app actions link to the Facilities view. Notification titles and email controls respect English/Indonesian preferences; user-entered booking content is preserved.
+- Delivery requires the existing background worker and configured email provider. `Email queued` is not proof of mailbox delivery; inspect `SENT`/`FAILED`/`DISABLED` in Notifications and confirm receipt in a staging mailbox after deployment. Automated local tests use a disposable database and do not send real emails.
+- Staging delivery checklist: enable `BACKGROUND_JOBS_ENABLED=true` and `EMAIL_PROVIDER=gmail`; configure `GMAIL_SENDER_EMAIL`, the service-account credentials file through `GMAIL_APPLICATION_CREDENTIALS`, and domain-wide Gmail send delegation. Email defaults to disabled if the provider is not set. Set `APP_BASE_URL` to the staging URL so booking actions do not point at production or localhost. Submit a future booking as a test requester, check active manager inboxes, approve once, then check the requester inbox and in-app notification. Do not use production recipients for smoke tests.
+
+Facilities bookings are separate from repair work orders. This feature does not automatically import assets or mark overdue bookings returned. Physical return verification remains the responsibility of any active global manager.

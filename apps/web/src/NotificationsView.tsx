@@ -82,6 +82,8 @@ interface DigestDetail {
 
 const presentations: Record<Locale, Record<string, NotificationPresentation>> = {
   en: {
+    FACILITIES_BOOKING_REQUESTED: { category: 'Facilities booking', label: 'Awaiting approval', tone: 'warning', icon: CalendarClock },
+    FACILITIES_BOOKING_APPROVED: { category: 'Facilities booking', label: 'Approved', tone: 'success', icon: CircleCheck },
     ASSIGNMENT: { category: 'Responsibility update', label: 'Assigned', tone: 'info', icon: UserRoundPlus },
     REASSIGNMENT: { category: 'Responsibility update', label: 'Reassigned', tone: 'info', icon: RefreshCcw },
     PROGRESS_COMMENT: { category: 'Progress discussion', label: 'New comment', tone: 'info', icon: MessageSquare },
@@ -108,6 +110,8 @@ const presentations: Record<Locale, Record<string, NotificationPresentation>> = 
     WORK_LIST_WEEKLY_DIGEST: { category: 'Routine Work report', label: 'Weekly summary', tone: 'info', icon: BarChart3, informational: true },
   },
   id: {
+    FACILITIES_BOOKING_REQUESTED: { category: 'Peminjaman fasilitas', label: 'Menunggu persetujuan', tone: 'warning', icon: CalendarClock },
+    FACILITIES_BOOKING_APPROVED: { category: 'Peminjaman fasilitas', label: 'Disetujui', tone: 'success', icon: CircleCheck },
     ASSIGNMENT: { category: 'Pembaruan tanggung jawab', label: 'Ditugaskan', tone: 'info', icon: UserRoundPlus },
     REASSIGNMENT: { category: 'Pembaruan tanggung jawab', label: 'Dialihkan', tone: 'info', icon: RefreshCcw },
     PROGRESS_COMMENT: { category: 'Diskusi progres', label: 'Komentar baru', tone: 'info', icon: MessageSquare },
@@ -351,7 +355,7 @@ export function NotificationsView({ locale = storedLocale(), onClose, onChanged,
             <div className="notification-icon" aria-hidden="true"><Icon /></div>
             <div className="notification-card-main">
               <div className="notification-card-topline"><div><span className="notification-category">{presentation.category}</span>{item.work_order_number && <span className="notification-reference">{item.work_order_number}</span>}{!item.read_status && <span className="notification-new-dot" title={isId ? 'Belum dibaca' : 'Unread'} />}</div><span className="notification-badge">{presentation.label}</span></div>
-              <div className="notification-card-content"><h3>{item.title}</h3><NotificationMessage item={item} locale={locale} /></div>
+              <div className="notification-card-content"><h3>{item.title}</h3><NotificationMessage item={item} locale={locale} />{(item.type === 'FACILITIES_BOOKING_REQUESTED' || item.type === 'FACILITIES_BOOKING_APPROVED') && <a href="/?view=facilities">{isId ? 'Buka peminjaman fasilitas' : 'Open facilities bookings'} <ExternalLink size={14} /></a>}</div>
               {item.email_last_error && <p className="notification-delivery-error">{isId ? 'Rincian kegagalan pengiriman email' : 'Email delivery detail'}: {item.email_last_error}</p>}
               <footer className="notification-card-footer"><div className="notification-meta"><span>{formatDistanceToNow(new Date(item.created_at), { addSuffix: true, locale: dateLocale })}</span><span className={`email-status email-${item.email_status.toLowerCase()}`}><Mail /> {emailStatusLabel(item, locale)}</span></div><div className="notification-actions">{isDigest(item) && <button className="notification-detail-link" onClick={() => openDigest(item.id)}>{isId ? 'Lihat ringkasan' : 'View digest'} <ExternalLink /></button>}{canRetryEmail && item.email_status === 'FAILED' && <button className="secondary-button" onClick={() => void retryEmail(item.id)} disabled={retryingId === item.id}>{retryingId === item.id ? (isId ? 'Mencoba ulang…' : 'Retrying…') : (isId ? 'Coba ulang email' : 'Retry email')}</button>}{!item.read_status && <button className="secondary-button" onClick={() => void update(item.id, 'read')}><Check /> {isId ? 'Tandai sudah dibaca' : 'Mark read'}</button>}{item.type !== 'WORK_LIST_MISSED_DIGEST' && !item.acknowledged_at && <button className="primary-button" onClick={() => void update(item.id, 'acknowledge')}><MailCheck /> {isId ? 'Konfirmasi' : 'Acknowledge'}</button>}</div></footer>
             </div>

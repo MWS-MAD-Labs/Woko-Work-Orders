@@ -62,6 +62,9 @@ function escapeHtml(value: string): string {
 
 function themeFor(data: NotificationEmailData, locale: NotificationLocale): TemplateTheme {
   const copy = emailCopy[locale];
+  if (data.type === 'FACILITIES_BOOKING_REQUESTED' || data.type === 'FACILITIES_BOOKING_APPROVED') {
+    return { eyebrow: locale === 'id' ? 'Peminjaman fasilitas' : 'Facilities booking', badge: data.type === 'FACILITIES_BOOKING_APPROVED' ? copy.approved : copy.awaitingApproval, accent: palette.sky, tint: palette.skySoft, badgeText: palette.skyStrong, icon: 'B' };
+  }
   const labels: Record<string, [string, string]> = {
     ASSIGNMENT: [copy.responsibilityUpdate, copy.assigned], REASSIGNMENT: [copy.responsibilityUpdate, copy.reassigned],
     PROGRESS_COMMENT: [copy.progressDiscussion, copy.newComment], DUE_DATE_CHANGED: [copy.scheduleUpdate, copy.dueDateChanged],
@@ -95,6 +98,14 @@ export function renderNotificationEmail(data: NotificationEmailData): { html: st
   const copy = emailCopy[locale];
   const localized = localizeNotification(data, locale);
   const theme = themeFor(data, locale);
+  if (data.type === 'FACILITIES_BOOKING_REQUESTED' || data.type === 'FACILITIES_BOOKING_APPROVED') {
+    const action = locale === 'id' ? 'Buka peminjaman fasilitas' : 'Open facilities bookings';
+    const url = `${config.APP_BASE_URL.replace(/\/$/, '')}/?view=facilities`;
+    return {
+      text: ['Woko Work Orders', theme.eyebrow, localized.title, `${copy.hello} ${data.recipientName},`, localized.message, `${action}: ${url}`, copy.automated].join('\n\n'),
+      html: `<!doctype html><html lang="${locale}"><head><meta charset="UTF-8"><title>${escapeHtml(localized.title)}</title></head><body style="font-family:Arial,sans-serif;background:${palette.canvas};color:${palette.ink};padding:24px"><main style="max-width:620px;margin:auto;background:white;padding:24px;border-radius:16px"><strong>Woko Work Orders · Millennia World School</strong><p>${escapeHtml(theme.eyebrow)} · ${escapeHtml(theme.badge)}</p><h1>${escapeHtml(localized.title)}</h1><p>${escapeHtml(copy.hello)} ${escapeHtml(data.recipientName)},</p><p style="white-space:pre-line">${escapeHtml(localized.message)}</p><p><a href="${escapeHtml(url)}">${escapeHtml(action)}</a></p><small>${escapeHtml(copy.signIn)}<br>${escapeHtml(copy.automated)}</small></main></body></html>`,
+    };
+  }
   const informational = data.type === 'WORK_LIST_MISSED_DIGEST';
   const workListReminder = data.type === 'WORK_LIST_DAILY_REMINDER';
   const url = workListReminder ? `${config.APP_BASE_URL.replace(/\/$/, '')}/?view=work-lists` : workOrderUrl(data.workOrderId);

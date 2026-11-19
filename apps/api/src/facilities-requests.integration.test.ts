@@ -68,6 +68,39 @@ afterAll(async () => {
 });
 
 describe('facilities route integration', () => {
+  it('notifies only active managers on request and queues each email, then notifies the requester exactly once on approval', async () => {
+    await sql`update users set active=false where id=${secondManagerId}`;
+    const assetId = await createAsset();
+    const created = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
+    expect(created.statusCode).toBe(201);
+    const id = (await body(created)).data.id as string;
+    const notices = await sql`select n.recipient_user_id, n.message, j.id as job_id from notifications n left join background_jobs j on j.idempotency_key='notification-email:' || n.id::text where n.idempotency_key like ${`facilities-requested:${id}:%`}`;
+    expect(notices.map((n) => n.recipient_user_id).sort()).toEqual([managerId, unrelatedAdminId].sort());
+    expect(notices.every((n) => n.job_id && n.message.includes('WIB') && n.message.includes('Class presentation'))).toBe(true);
+    const decision = { method: 'POST' as const, url: `/api/v1/facilities/requests/${id}/decision`, headers: asUser(managerId), payload: { decision: 'APPROVED', note: 'Ready for collection' } };
+    expect((await app.inject(decision)).statusCode).toBe(200);
+    expect((await app.inject(decision)).statusCode).toBe(422);
+    const approved = await sql`select recipient_user_id, message from notifications where idempotency_key=${`facilities-approved:${id}`}`;
+    expect(approved).toHaveLength(1);
+    expect(approved[0]?.recipient_user_id).toBe(requesterId);
+    expect(approved[0]?.message).toContain('Ready for collection');
+    const inbox = await app.inject({ method: 'GET', url: '/api/v1/notifications', headers: asUser(requesterId) });
+    expect((await body(inbox)).data.some((n: any) => n.type === 'FACILITIES_BOOKING_APPROVED')).toBe(true);
+  });
+
+  it('persists manager-defined categories and retains them when legacy updates omit the field', async () => {
+    const response = await app.inject({ method: 'POST', url: '/api/v1/facilities/assets', headers: asUser(managerId), payload: { name: 'Microphone', assetCode: 'MIC-1', quantity: 2, active: true, category: ' Audio ' } });
+    expect(response.statusCode).toBe(201);
+    expect((await body(response)).data.category).toBe('Audio');
+    const id = (await body(response)).data.id;
+    const updated = await app.inject({ method: 'PUT', url: `/api/v1/facilities/assets/${id}`, headers: asUser(managerId), payload: { name: 'Microphone', assetCode: 'MIC-1', quantity: 3, active: true } });
+    expect((await body(updated)).data.category).toBe('Audio');
+    const cleared = await app.inject({ method: 'PUT', url: `/api/v1/facilities/assets/${id}`, headers: asUser(managerId), payload: { name: 'Microphone', assetCode: 'MIC-1', quantity: 3, active: true, category: ' ' } });
+    expect((await body(cleared)).data.category).toBe('Uncategorized');
+    const legacyId = await createAsset();
+    const listed = await app.inject({ method: 'GET', url: '/api/v1/facilities/assets', headers: asUser(requesterId) });
+    expect((await body(listed)).data.find((asset: any) => asset.id === legacyId).category).toBe('Uncategorized');
+  });
   it('creates bookings with no work-order settings and retains deterministic routing metadata', async () => {
     const assetId = await createAsset();
     const created = await app.inject({ method: 'POST', url: '/api/v1/facilities/requests', headers: asUser(requesterId), payload: futureBooking(assetId) });
@@ -127,6 +160,8 @@ describe('facilities route integration', () => {
     const approved = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${requestId}/decision`, headers: asUser(secondManagerId), payload: { decision: 'APPROVED', note: 'Approved by another global manager' } });
     expect(approved.statusCode).toBe(200);
     expect((await body(approved)).data.status).toBe('APPROVED');
+    const queued = await sql`select j.id from notifications n join background_jobs j on j.idempotency_key='notification-email:' || n.id::text where n.idempotency_key=${`facilities-approved:${requestId}`}`;
+    expect(queued).toHaveLength(1);
     await sql`update users set active = false where id = ${managerId}`;
     const inactive = await app.inject({ method: 'GET', url: '/api/v1/facilities/requests', headers: asUser(managerId) });
     expect(inactive.statusCode).toBe(401);
@@ -193,6 +228,7 @@ describe('facilities route integration', () => {
     const decision = await app.inject({ method: 'POST', url: `/api/v1/facilities/requests/${expired[0]!.id}/decision`, headers: asUser(managerId), payload: { decision: 'APPROVED', note: 'Too late' } });
     expect(decision.statusCode).toBe(422);
     expect((await body(decision)).error?.code).toBe('BOOKING_EXPIRED');
+    expect(await sql`select id from notifications where idempotency_key=${`facilities-approved:${expired[0]!.id}`}`).toHaveLength(0);
   });
 
   it('prevents stock reduction or deactivation while requests commit the asset', async () => {
