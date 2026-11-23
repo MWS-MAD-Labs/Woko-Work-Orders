@@ -82,8 +82,27 @@ describe('FacilitiesView', () => {
     fireEvent.change(screen.getByLabelText('Starts at'), { target: { value: '2026-10-25T09:00' } });
     fireEvent.change(screen.getByLabelText('Ends at'), { target: { value: endsAt } });
     fireEvent.click(screen.getByRole('button', { name: 'Request booking' }));
-    expect(await screen.findByText(/must end after it starts/i)).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toBe('The booking must end after it starts.');
     expect(postCall('/facilities/requests')).toBeUndefined();
+  });
+
+  it('explains a past start in Indonesian even when both dates are within the booking window', async () => {
+    vi.setSystemTime(new Date('2026-11-23T09:25:00+07:00'));
+    mockFacilityApi();
+    render(<FacilitiesView currentUser={borrower} locale="id" />);
+    await screen.findByText('Projector');
+    fireEvent.click(screen.getByRole('button', { name: 'Peminjaman baru' }));
+    fireEvent.change(screen.getByLabelText('Keperluan'), { target: { value: 'Training' } });
+    fireEvent.change(screen.getByLabelText('Lokasi'), { target: { value: 'Hall' } });
+    fireEvent.change(screen.getByLabelText('Mulai'), { target: { value: '2026-11-23T09:00' } });
+    fireEvent.change(screen.getByLabelText('Selesai'), { target: { value: '2026-11-25T16:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan peminjaman' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Waktu mulai peminjaman harus setelah waktu sekarang (WIB).');
+    expect(postCall('/facilities/requests')).toBeUndefined();
+
+    fireEvent.change(screen.getByLabelText('Mulai'), { target: { value: '2026-11-23T10:00' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Ajukan peminjaman' }));
+    await waitFor(() => expect(postCall('/facilities/requests')).toBeTruthy());
   });
 
   it('shows newly created inventory after refreshing without reopening the sheet', async () => {
@@ -172,7 +191,7 @@ describe('FacilitiesView', () => {
     fireEvent.change(screen.getByLabelText('Starts at'), { target: { value: '2026-12-25T09:00' } });
     fireEvent.change(screen.getByLabelText('Ends at'), { target: { value: '2026-12-25T12:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Request booking' }));
-    expect(await screen.findByText(/must end after it starts/i)).toBeTruthy();
+    expect((await screen.findByRole('alert')).textContent).toBe('The booking must start and end within two calendar months from today (WIB).');
     expect(postCall('/facilities/requests')).toBeUndefined();
   });
 
