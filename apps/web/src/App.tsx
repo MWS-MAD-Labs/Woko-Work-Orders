@@ -4,6 +4,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
 import { HUB_SESSION_REQUIRED, claimHubRedirect } from './hub-redirect';
+import { startHubSessionRefresh } from './hub-session';
 import { translator, type Locale } from './i18n';
 import { ConditionActionForm, CreateWorkOrderForm, DueDateActionForm, EvidencePanel, InternalProcurementPanel, ParticipantsActionForm, ProposalDecisionForm, VendorActionForm, WorkflowActionForm } from './WorkOrderForms';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
@@ -284,6 +285,8 @@ export default function App() {
   const t = translator(locale);
   const urlSyncController = useRef<AbortController | null>(null);
 
+  useEffect(() => currentUser ? startHubSessionRefresh(currentUser) : undefined, [currentUser]);
+
   const syncFromUrl = useCallback(async () => {
     urlSyncController.current?.abort();
     const controller = new AbortController();
@@ -456,7 +459,7 @@ export default function App() {
               return <section className="work-section" key={group}><header><span className={`section-indicator section-${group.toLowerCase()}`} /><h2>{t(group)}</h2><span className="section-count">{groupOrders.length}</span><button className="icon-button small" aria-label={`${locale === 'id' ? 'Ciutkan' : 'Collapse'} ${t(group)}`}><ChevronDown /></button></header><div className="card-grid">{groupOrders.map((order) => <WorkOrderCard key={order.id} order={order} locale={locale} onOpen={() => openOrder(order)} />)}</div></section>;
             })}
           </div>
-        </> : primaryPage === 'work-lists' ? <WorkListsView currentUser={currentUser} locale={locale} /> : <FacilitiesView currentUser={currentUser} locale={locale} />}
+        </> : primaryPage === 'work-lists' ? <WorkListsView currentUser={currentUser} locale={locale} /> : <FacilitiesView currentUser={currentUser} locale={locale} onSessionRestored={(user) => setCurrentUser({ ...user, preferredLocale: locale })} />}
       </div>
     </main>
 

@@ -4,10 +4,10 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { FacilitiesView } from './FacilitiesView';
-import { api } from './api';
+import { ApiError, api } from './api';
 import type { CurrentUser } from './types';
 
-vi.mock('./api', () => ({ api: vi.fn() }));
+vi.mock('./api', async (importOriginal) => ({ ...await importOriginal<typeof import('./api')>(), api: vi.fn() }));
 
 const borrower: CurrentUser = {
   id: 'user-1', email: 'borrower@example.test', fullName: 'Borrower', permissions: [...permissionBundles.worker], preferredLocale: 'en', sessionExpiresAt: '2099-01-01',
@@ -212,6 +212,47 @@ describe('FacilitiesView', () => {
     expect(assetCalls.at(-1)).toEqual(['/facilities/assets']);
   });
 
+
+  it.each([['Approve', 'APPROVED'], ['Reject', 'REJECTED']])('requires a note and lets the manager explicitly retry %s after sign-in', async (action, decision) => {
+    const path = '/facilities/requests/request-1/decision';
+    let signedIn = false;
+    let status = 'PENDING';
+    vi.mocked(api).mockImplementation((url, init) => {
+      if (url === '/me') return Promise.resolve(signedIn ? manager : otherManager);
+      if (url === '/facilities/assets') return Promise.resolve(assets);
+      if (url === '/facilities/requests') return Promise.resolve([request({ status })]);
+      if (url === path && init?.method === 'POST') {
+        if (!signedIn) return Promise.reject(new ApiError('Sign in through the Hub.', 401, 'HUB_SESSION_REQUIRED'));
+        status = decision;
+      }
+      return Promise.resolve({});
+    });
+    render(<FacilitiesView currentUser={manager} locale="en" />);
+    await screen.findByText('Workshop');
+    fireEvent.click(screen.getByRole('button', { name: 'Decision' }));
+    const note = screen.getByRole('textbox', { name: /decision note/i }) as HTMLTextAreaElement;
+    expect(note.required).toBe(true);
+    fireEvent.change(note, { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    expect(screen.getByRole('alert').textContent).toBe('Enter a decision note.');
+    expect(postCall(path)).toBeUndefined();
+    fireEvent.change(note, { target: { value: '  Reviewed by facilities  ' } });
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    const signIn = await screen.findByRole('link', { name: 'Sign in again' });
+    expect(signIn.getAttribute('target')).toBe('_blank');
+    expect(note.value).toBe('  Reviewed by facilities  ');
+    fireEvent.click(screen.getByRole('button', { name: 'Check sign-in' }));
+    await screen.findByText('Sign in with the same account to continue.');
+    signedIn = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Check sign-in' }));
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'Sign in again' })).toBeNull());
+    expect(vi.mocked(api).mock.calls.filter(([url]) => url === path)).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    await screen.findByText(decision);
+    const calls = vi.mocked(api).mock.calls.filter(([url]) => url === path);
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(calls[1]![1]!.body as string)).toEqual({ decision, note: 'Reviewed by facilities' });
+  });
 
   it('lets any global manager decide, inspect a return, and resolve return issues', async () => {
     let requests = [request()];

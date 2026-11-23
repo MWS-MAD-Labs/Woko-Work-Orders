@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { AlertTriangle, Check, ClipboardCheck, PackagePlus, Plus, RotateCcw, Wrench, X } from 'lucide-react';
-import { api } from './api';
+import { ApiError, api, authLoginUrl } from './api';
 import './facilities.css';
 import type { Locale } from './i18n';
 import type { CurrentUser } from './types';
@@ -24,7 +24,7 @@ function formatDate(value: string, locale: Locale) { return new Intl.DateTimeFor
 function bookingWindowEnd(now = new Date()) { const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now); const part = (type: string) => Number(parts.find((value) => value.type === type)!.value); const next = new Date(Date.UTC(part('year'), part('month') + 1, 1)); const lastDay = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate(); return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, '0')}-${String(Math.min(part('day'), lastDay)).padStart(2, '0')}T23:59`; }
 function jakartaIso(value: string) { const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value); if (!match) return null; return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), Number(match[4]) - 7, Number(match[5]))).toISOString(); }
 
-export function FacilitiesView({ currentUser, locale }: { currentUser: CurrentUser; locale: Locale }) {
+export function FacilitiesView({ currentUser, locale, onSessionRestored }: { currentUser: CurrentUser; locale: Locale; onSessionRestored?: (user: CurrentUser) => void }) {
   const [search, setSearch] = useState(''); const [category, setCategory] = useState('');
   const t: Copy = copy[locale]; const manager = isManager(currentUser);
   const [assets, setAssets] = useState<FacilityAsset[]>([]); const [requests, setRequests] = useState<FacilityRequest[]>([]);
@@ -35,7 +35,7 @@ export function FacilitiesView({ currentUser, locale }: { currentUser: CurrentUs
   const visibleRequests = manager ? requests : requests.filter((request) => request.requester_id === currentUser.id);
   return <section className="facilities-view"><header className="page-header facilities-header"><div><span className="eyebrow">{t.requests}</span><h1>{t.title}</h1><p>{t.subtitle}</p></div><div className="header-actions"><button className="secondary-button" onClick={() => setShowInventory(true)} hidden={!manager}><PackagePlus /> {t.manage}</button><button className="primary-button" onClick={() => setShowForm(true)}><Plus /> {t.book}</button></div></header>
     {error && <p className="form-error" role="alert">{error}</p>}{notice && <p className="success-message" role="status">{notice}</p>}
-    {loading ? <p className="muted">…</p> : <div className="facilities-layout"><section className="facility-request-list" aria-label={manager ? t.allBookings : t.myBookings}><header><h2>{manager ? t.allBookings : t.myBookings}</h2><span>{visibleRequests.length}</span></header>{visibleRequests.length ? visibleRequests.map((request) => <RequestCard key={request.id} request={request} currentUser={currentUser} locale={locale} onChanged={async (message) => { setNotice(message); await load(); }} onError={setError} />) : <p className="empty-work">{t.empty}</p>}</section><aside className="facility-summary"><h2>{t.assets}</h2><FacilityAssetFilters assets={assets.filter((asset) => asset.active)} locale={locale} search={search} category={category} onSearch={setSearch} onCategory={setCategory} />{assets.filter((asset) => asset.active && matchesAsset(asset, search, category)).map((asset) => <div key={asset.id}><strong>{asset.name}</strong><small>{assetCategory(asset)} · {asset.asset_code} · {asset.quantity} {t.available.toLowerCase()}</small></div>)}{!assets.some((asset) => asset.active) ? <p>{t.noAssets}</p> : !assets.some((asset) => asset.active && matchesAsset(asset, search, category)) && <p>{locale === 'id' ? 'Tidak ada item yang cocok.' : 'No matching items.'}</p>}</aside></div>}
+    {loading ? <p className="muted">…</p> : <div className="facilities-layout"><section className="facility-request-list" aria-label={manager ? t.allBookings : t.myBookings}><header><h2>{manager ? t.allBookings : t.myBookings}</h2><span>{visibleRequests.length}</span></header>{visibleRequests.length ? visibleRequests.map((request) => <RequestCard key={request.id} request={request} currentUser={currentUser} locale={locale} onSessionRestored={onSessionRestored} onChanged={async (message) => { setNotice(message); await load(); }} onError={setError} />) : <p className="empty-work">{t.empty}</p>}</section><aside className="facility-summary"><h2>{t.assets}</h2><FacilityAssetFilters assets={assets.filter((asset) => asset.active)} locale={locale} search={search} category={category} onSearch={setSearch} onCategory={setCategory} />{assets.filter((asset) => asset.active && matchesAsset(asset, search, category)).map((asset) => <div key={asset.id}><strong>{asset.name}</strong><small>{assetCategory(asset)} · {asset.asset_code} · {asset.quantity} {t.available.toLowerCase()}</small></div>)}{!assets.some((asset) => asset.active) ? <p>{t.noAssets}</p> : !assets.some((asset) => asset.active && matchesAsset(asset, search, category)) && <p>{locale === 'id' ? 'Tidak ada item yang cocok.' : 'No matching items.'}</p>}</aside></div>}
     {showForm && <BookingForm assets={assets} locale={locale} onClose={() => setShowForm(false)} onCreated={async () => { setShowForm(false); setNotice(t.created); await load(); }} onError={setError} />}
     {showInventory && manager && <Sheet title={t.inventory} onClose={() => setShowInventory(false)}><FacilityInventory assets={assets} locale={locale} onChanged={async () => { setNotice(t.updated); await load(); }} onError={setError} /></Sheet>}
   </section>;
@@ -66,13 +66,73 @@ function BookingForm({ assets, locale, onClose, onCreated, onError }: { assets: 
   </form></Sheet>;
 }
 
-function RequestCard({ request, currentUser, locale, onChanged, onError }: { request: FacilityRequest; currentUser: CurrentUser; locale: Locale; onChanged: (message: string) => Promise<void>; onError: (value: string) => void }) {
+function RequestCard({ request, currentUser, locale, onChanged, onError, onSessionRestored }: { request: FacilityRequest; currentUser: CurrentUser; locale: Locale; onSessionRestored?: (user: CurrentUser) => void; onChanged: (message: string) => Promise<void>; onError: (value: string) => void }) {
   const t: Copy = copy[locale]; const manager = isManager(currentUser); const canReturn = manager && request.status === 'APPROVED' && new Date(request.ends_at) <= new Date(); const hasUnresolvedIssues = request.status === 'RETURNED_WITH_ISSUES' && request.items.some((item) => !item.issue_resolved_at); const overdue = request.status === 'APPROVED' && new Date(request.ends_at) < new Date(); const [decisionOpen, setDecisionOpen] = useState(false); const [returnOpen, setReturnOpen] = useState(false); const [resolveOpen, setResolveOpen] = useState(false); const [busy, setBusy] = useState(false);
   const cancel = async () => { setBusy(true); try { await api(`/facilities/requests/${request.id}/cancel`, { method: 'POST', body: JSON.stringify({}) }); await onChanged(t.updated); } catch (caught) { onError(caught instanceof Error ? caught.message : t.error); } finally { setBusy(false); } };
-  return <article className="facility-request-card"><header><div><span className={`facility-status status-${request.status.toLowerCase()}`}>{t[`status_${request.status}`]}</span><h3>{request.purpose}</h3><p>{request.location} · {formatDate(request.starts_at, locale)} – {formatDate(request.ends_at, locale)}</p></div>{overdue ? <span className="facility-alert"><AlertTriangle /> {t.overdue}</span> : request.status === 'APPROVED' ? <span className="facility-awaiting"><ClipboardCheck /> {t.awaiting}</span> : null}</header><dl><div><dt>{t.requester}</dt><dd>{request.requester_name}</dd></div><div><dt>{t.approver}</dt><dd>{request.approver_name ?? '—'}</dd></div></dl><ul>{request.items.map((item) => <li key={item.asset_id}>{item.asset_name} <strong>×{item.quantity}</strong>{item.returned_quantity != null && <small> · {t.returned}: {item.returned_quantity} · {item.condition}</small>}{item.issue_note && <small> · {item.issue_note}</small>}</li>)}</ul>{request.decision_note && <p className="facility-note">{t.decisionNote}: {request.decision_note}</p>}{request.return_note && <p className="facility-note">{t.returnNote}: {request.return_note}</p>}<footer>{request.requester_id === currentUser.id && request.status === 'PENDING' && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>{t.cancel}</button>}{manager && request.status === 'PENDING' && <button className="primary-button" disabled={busy} onClick={() => setDecisionOpen(true)}><Check /> {t.decision}</button>}{canReturn && <button className="primary-button" disabled={busy} onClick={() => setReturnOpen(true)}><RotateCcw /> {t.return}</button>}{manager && hasUnresolvedIssues && <button className="primary-button" disabled={busy} onClick={() => setResolveOpen(true)}><Wrench /> {t.resolveIssues}</button>}</footer>{decisionOpen && <DecisionForm request={request} locale={locale} onClose={() => setDecisionOpen(false)} onChanged={onChanged} onError={onError} />}{returnOpen && <ReturnForm request={request} locale={locale} onClose={() => setReturnOpen(false)} onChanged={onChanged} onError={onError} />}{resolveOpen && <ResolveIssuesForm request={request} locale={locale} onClose={() => setResolveOpen(false)} onChanged={onChanged} onError={onError} />}</article>;
+  return <article className="facility-request-card"><header><div><span className={`facility-status status-${request.status.toLowerCase()}`}>{t[`status_${request.status}`]}</span><h3>{request.purpose}</h3><p>{request.location} · {formatDate(request.starts_at, locale)} – {formatDate(request.ends_at, locale)}</p></div>{overdue ? <span className="facility-alert"><AlertTriangle /> {t.overdue}</span> : request.status === 'APPROVED' ? <span className="facility-awaiting"><ClipboardCheck /> {t.awaiting}</span> : null}</header><dl><div><dt>{t.requester}</dt><dd>{request.requester_name}</dd></div><div><dt>{t.approver}</dt><dd>{request.approver_name ?? '—'}</dd></div></dl><ul>{request.items.map((item) => <li key={item.asset_id}>{item.asset_name} <strong>×{item.quantity}</strong>{item.returned_quantity != null && <small> · {t.returned}: {item.returned_quantity} · {item.condition}</small>}{item.issue_note && <small> · {item.issue_note}</small>}</li>)}</ul>{request.decision_note && <p className="facility-note">{t.decisionNote}: {request.decision_note}</p>}{request.return_note && <p className="facility-note">{t.returnNote}: {request.return_note}</p>}<footer>{request.requester_id === currentUser.id && request.status === 'PENDING' && <button className="secondary-button" disabled={busy} onClick={() => void cancel()}>{t.cancel}</button>}{manager && request.status === 'PENDING' && <button className="primary-button" disabled={busy} onClick={() => setDecisionOpen(true)}><Check /> {t.decision}</button>}{canReturn && <button className="primary-button" disabled={busy} onClick={() => setReturnOpen(true)}><RotateCcw /> {t.return}</button>}{manager && hasUnresolvedIssues && <button className="primary-button" disabled={busy} onClick={() => setResolveOpen(true)}><Wrench /> {t.resolveIssues}</button>}</footer>{decisionOpen && <DecisionForm request={request} currentUser={currentUser} locale={locale} onClose={() => setDecisionOpen(false)} onChanged={onChanged} onSessionRestored={onSessionRestored} />}{returnOpen && <ReturnForm request={request} locale={locale} onClose={() => setReturnOpen(false)} onChanged={onChanged} onError={onError} />}{resolveOpen && <ResolveIssuesForm request={request} locale={locale} onClose={() => setResolveOpen(false)} onChanged={onChanged} onError={onError} />}</article>;
 }
 
-function DecisionForm({ request, locale, onClose, onChanged, onError }: { request: FacilityRequest; locale: Locale; onClose: () => void; onChanged: (message: string) => Promise<void>; onError: (value: string) => void }) { const t: Copy = copy[locale]; const [note, setNote] = useState(''); const submit = async (decision: 'APPROVED' | 'REJECTED') => { try { await api(`/facilities/requests/${request.id}/decision`, { method: 'POST', body: JSON.stringify({ decision, note }) }); onClose(); await onChanged(t.updated); } catch (caught) { onError(caught instanceof Error ? caught.message : t.error); } }; return <div className="facility-inline-form"><label>{t.decisionNote}<textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} /></label><button className="primary-button" onClick={() => void submit('APPROVED')}>{t.approve}</button><button className="secondary-button" onClick={() => void submit('REJECTED')}>{t.reject}</button><button className="icon-button" aria-label={t.cancel} onClick={onClose}><X /></button></div>; }
+function DecisionForm({ request, currentUser, locale, onClose, onChanged, onSessionRestored }: {
+  request: FacilityRequest; currentUser: CurrentUser; locale: Locale; onClose: () => void;
+  onChanged: (message: string) => Promise<void>; onSessionRestored?: (user: CurrentUser) => void;
+}) {
+  const t = copy[locale];
+  const recovery = locale === 'id' ? {
+    required: 'wajib diisi', missing: 'Isi catatan keputusan.',
+    ended: 'Sesi Anda berakhir. Masuk kembali di tab baru, lalu periksa sesi di sini. Catatan Anda tetap tersimpan di formulir ini.',
+    signIn: 'Masuk kembali', check: 'Periksa sesi', wrongAccount: 'Masuk dengan akun yang sama untuk melanjutkan.',
+    restored: 'Sesi aktif. Pilih Setujui atau Tolak untuk mengirim keputusan.',
+  } : {
+    required: 'required', missing: 'Enter a decision note.',
+    ended: 'Your session ended. Sign in again in a new tab, then check your sign-in here. Your note stays in this form.',
+    signIn: 'Sign in again', check: 'Check sign-in', wrongAccount: 'Sign in with the same account to continue.',
+    restored: 'You’re signed in. Choose Approve or Reject to submit the decision.',
+  };
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const submit = async (decision: 'APPROVED' | 'REJECTED') => {
+    if (busy || needsSignIn) return;
+    setError(''); setNotice('');
+    if (!note.trim()) { setError(recovery.missing); return; }
+    setBusy(true);
+    try {
+      await api(`/facilities/requests/${request.id}/decision`, { method: 'POST', body: JSON.stringify({ decision, note: note.trim() }) });
+      onClose();
+      await onChanged(t.updated);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.status === 401) {
+        setNeedsSignIn(true);
+        setError(recovery.ended);
+      } else setError(caught instanceof Error ? caught.message : t.error);
+    } finally { setBusy(false); }
+  };
+  const checkSignIn = async () => {
+    setBusy(true);
+    try {
+      const user = await api<CurrentUser>('/me', { cache: 'no-store' });
+      if (user.id !== currentUser.id) { setError(recovery.wrongAccount); return; }
+      onSessionRestored?.(user);
+      setNeedsSignIn(false); setError(''); setNotice(recovery.restored);
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.status === 401 ? recovery.ended : caught instanceof Error ? caught.message : t.error);
+    } finally { setBusy(false); }
+  };
+  return <div className="facility-inline-form">
+    <label>{t.decisionNote} ({recovery.required})<textarea required value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} /></label>
+    {error && <p className="form-error" role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    {needsSignIn && <>
+      <a className="secondary-button" href={authLoginUrl('/?view=facilities')} target="_blank" rel="noopener noreferrer">{recovery.signIn}</a>
+      <button className="secondary-button" disabled={busy} onClick={() => void checkSignIn()}>{recovery.check}</button>
+    </>}
+    <button className="primary-button" disabled={busy || needsSignIn} onClick={() => void submit('APPROVED')}>{t.approve}</button>
+    <button className="secondary-button" disabled={busy || needsSignIn} onClick={() => void submit('REJECTED')}>{t.reject}</button>
+    <button className="icon-button" aria-label={t.cancel} disabled={busy} onClick={onClose}><X /></button>
+  </div>;
+}
 
 function ReturnForm({ request, locale, onClose, onChanged, onError }: { request: FacilityRequest; locale: Locale; onClose: () => void; onChanged: (message: string) => Promise<void>; onError: (value: string) => void }) { const t: Copy = copy[locale]; const [items, setItems] = useState<Array<{ assetId: string; returnedQuantity: number; condition: 'GOOD' | 'DAMAGED' | 'MISSING'; issueNote: string }>>(request.items.map((item) => ({ assetId: item.asset_id, returnedQuantity: item.quantity, condition: 'GOOD', issueNote: '' }))); const [note, setNote] = useState(''); const submit = async () => { try { await api(`/facilities/requests/${request.id}/return`, { method: 'POST', body: JSON.stringify({ items, note }) }); onClose(); await onChanged(t.updated); } catch (caught) { onError(caught instanceof Error ? caught.message : t.error); } }; return <div className="facility-return-form"><h4>{t.return}</h4>{items.map((item, index) => <div key={item.assetId}><strong>{request.items[index]?.asset_name}</strong><input aria-label={`${t.returned} ${index + 1}`} type="number" min="0" max={request.items[index]?.quantity} value={item.returnedQuantity} onChange={(event) => setItems((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, returnedQuantity: Number(event.target.value) } : line))} /><select aria-label={`${t.condition} ${index + 1}`} value={item.condition} onChange={(event) => setItems((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, condition: event.target.value as 'GOOD' | 'DAMAGED' | 'MISSING' } : line))}><option value="GOOD">{t.good}</option><option value="DAMAGED">{t.damaged}</option><option value="MISSING">{t.missing}</option></select><input aria-label={`${t.issue} ${index + 1}`} placeholder={t.issue} value={item.issueNote} onChange={(event) => setItems((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, issueNote: event.target.value } : line))} /></div>)}<label>{t.returnNote}<textarea value={note} onChange={(event) => setNote(event.target.value)} /></label><button className="primary-button" onClick={() => void submit()}>{t.save}</button><button className="secondary-button" onClick={onClose}>{t.cancel}</button></div>; }
 

@@ -37,6 +37,7 @@
 .facility-item-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 44px; align-items: center; gap: 8px; margin-bottom: 10px; }
 .facility-inline-form, .facility-return-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #f5fafc; }
 .facility-inline-form > label, .facility-return-form > label, .facility-return-form > h4 { flex-basis: 100%; margin: 0; }
+.facility-inline-form > [role="alert"], .facility-inline-form > [role="status"] { flex-basis: 100%; }
 .facility-return-form > div { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 90px minmax(110px, 1fr); gap: 8px; align-items: center; }
 .facility-return-form > div > input:last-child { grid-column: 1 / -1; }
 .facility-inventory-add { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) 80px; gap: 8px; margin-bottom: 24px; }
