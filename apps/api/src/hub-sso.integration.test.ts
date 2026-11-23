@@ -65,6 +65,7 @@ describe('signing in through the Hub', () => {
     expect(response.statusCode).toBe(200);
     const me = response.json().data;
     expect(me).toMatchObject({ email: 'hubtest-ayu.putri@millennia21.id', fullName: 'Hubtest Ayu Putri', authMode: 'hub' });
+    expect(me.hubRefreshUrl).toBe('https://hub.example.org/auth/refresh');
     expect(me.permissions).toEqual(expect.arrayContaining([...permissionBundles.worker]));
     expect(me.roles).toBeUndefined();
     const stored = await sql`select central_person_id, active from users where email = 'hubtest-ayu.putri@millennia21.id'`;

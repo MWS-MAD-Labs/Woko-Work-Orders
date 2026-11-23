@@ -272,7 +272,11 @@ export async function workOrderRoutes(app: FastifyInstance) {
     if (!rows.length) await reply.code(404).send({ error: { code: 'NOT_FOUND', message: 'Work order not found.', requestId: request.id } });
   });
 
-  app.get('/me', async (request) => ({ data: { ...request.currentUser, authMode: config.AUTH_MODE } }));
+  app.get('/me', async (request) => ({ data: {
+    ...request.currentUser,
+    authMode: config.AUTH_MODE,
+    ...(config.AUTH_MODE === 'hub' && config.HUB_BASE_URL ? { hubRefreshUrl: new URL('/auth/refresh', config.HUB_BASE_URL).href } : {}),
+  } }));
 
   app.get('/reference-data', async () => {
     const [users, campuses, buildings, locationOptions, workOptions, periods] = await Promise.all([
