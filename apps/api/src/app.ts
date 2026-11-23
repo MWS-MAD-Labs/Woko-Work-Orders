@@ -7,6 +7,7 @@ import cookie from '@fastify/cookie';
 import { evidenceRules } from '@woko/domain';
 import { ZodError } from 'zod';
 import { config } from './config.js';
+import { hubAccess } from './hub-access.js';
 import { sql } from './database/client.js';
 import { workOrderRoutes } from './work-orders.js';
 import { authRoutes } from './auth-routes.js';
@@ -58,7 +59,10 @@ export async function buildApp(options: { prepare?: (app: ReturnType<typeof Fast
 
   app.get('/health/live', async () => ({ status: 'ok' }));
   // Public: the banner on a test stack reads this before anyone has signed in.
-  app.get('/api/v1/public-config', async () => ({ data: { production_url: config.PRODUCTION_URL?.replace(/\/$/, '') ?? null } }));
+  app.get('/api/v1/public-config', async () => {
+    const hub = config.AUTH_MODE === 'hub' ? hubAccess() : undefined;
+    return { data: { production_url: config.PRODUCTION_URL?.replace(/\/$/, '') ?? null, hub_refresh_url: hub?.refreshUrl() ?? null, hub_home_url: hub?.homeUrl() ?? null } };
+  });
   app.get('/health/ready', async (_request, reply) => {
     try {
       await sql`select 1`;

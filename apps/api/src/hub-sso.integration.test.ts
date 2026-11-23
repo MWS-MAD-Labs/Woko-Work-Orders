@@ -25,6 +25,7 @@ const fakeHub: HubAccess = {
   },
   resolve: async (personId) => (central === 'down' ? { status: 'unavailable', personId, error: new Error('down') } : (entitlements.get(personId) ?? { status: 'denied', personId, reason: 'no-access' })),
   homeUrl: () => 'https://hub.example.org/',
+  refreshUrl: () => 'https://hub.example.org/auth/refresh',
   restoreUrl: (returnUrl) => `https://hub.example.org/auth/restore?return=${encodeURIComponent(returnUrl)}`,
 };
 

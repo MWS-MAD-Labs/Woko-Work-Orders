@@ -13,6 +13,7 @@
     "@vite-pwa/assets-generator": "^0.2.6",
     "@woko/domain": "*",
     "date-fns": "^4.1.0",
+    "mws-central-auth": "git+https://github.com/MWS-MAD-Labs/mws-central-auth.git#v0.14.2",
     "lucide-react": "^0.522.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

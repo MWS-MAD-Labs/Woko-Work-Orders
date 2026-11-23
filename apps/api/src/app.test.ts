@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from './app.js';
 import { config } from './config.js';
 
@@ -30,20 +30,29 @@ describe('validation errors', () => {
 });
 
 describe('public config', () => {
-  it('has no production address on the real stack', async () => {
+  const mutable = config as { PRODUCTION_URL?: string; AUTH_MODE: string };
+  const before = { production: mutable.PRODUCTION_URL, mode: mutable.AUTH_MODE };
+  afterEach(() => { mutable.PRODUCTION_URL = before.production; mutable.AUTH_MODE = before.mode; });
+
+  it('has no production address and no Hub on the real stack', async () => {
+    mutable.PRODUCTION_URL = undefined;
+    mutable.AUTH_MODE = 'test';
     const response = await app.inject({ method: 'GET', url: '/api/v1/public-config' });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ data: { production_url: null } });
+    expect(response.json()).toEqual({ data: { production_url: null, hub_refresh_url: null, hub_home_url: null } });
   });
 
   it('gives the production address of a test stack without a trailing slash', async () => {
-    const mutable = config as { PRODUCTION_URL?: string };
     mutable.PRODUCTION_URL = 'https://woko.example.org/';
-    try {
-      const response = await app.inject({ method: 'GET', url: '/api/v1/public-config' });
-      expect(response.json()).toEqual({ data: { production_url: 'https://woko.example.org' } });
-    } finally {
-      mutable.PRODUCTION_URL = undefined;
-    }
+    mutable.AUTH_MODE = 'test';
+    const response = await app.inject({ method: 'GET', url: '/api/v1/public-config' });
+    expect(response.json().data.production_url).toBe('https://woko.example.org');
+  });
+
+  it('tells the page where to renew the Hub session', async () => {
+    mutable.AUTH_MODE = 'hub';
+    const response = await app.inject({ method: 'GET', url: '/api/v1/public-config' });
+    expect(response.json().data.hub_refresh_url).toMatch(/\/auth\/refresh$/);
+    expect(response.json().data.hub_home_url).toMatch(/\/$/);
   });
 });

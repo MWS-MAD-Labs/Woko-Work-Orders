@@ -4,6 +4,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { enUS, id } from 'date-fns/locale';
 import { ApiError, api, authLoginUrl } from './api';
 import { HUB_SESSION_REQUIRED, claimHubRedirect } from './hub-redirect';
+import { keepHubSessionFresh } from './hub-session';
 import { translator, type Locale } from './i18n';
 import { ConditionActionForm, CreateWorkOrderForm, DueDateActionForm, EvidencePanel, InternalProcurementPanel, ParticipantsActionForm, ProposalDecisionForm, VendorActionForm, WorkflowActionForm } from './WorkOrderForms';
 import type { CurrentUser, ReferenceData, WorkOrder } from './types';
@@ -319,6 +320,8 @@ export default function App() {
       if (caught instanceof ApiError && caught.status === 401 && !goToHub(caught)) setAuthState('unauthenticated');
     }
   };
+
+  useEffect(() => (authState === 'authenticated' ? keepHubSessionFresh() : undefined), [authState]);
 
   useEffect(() => {
     Promise.all([api<CurrentUser>('/me'), api<ReferenceData>('/reference-data'), api<Order[]>('/work-orders'), api<{ count: number }>('/notifications/unread-count')])
