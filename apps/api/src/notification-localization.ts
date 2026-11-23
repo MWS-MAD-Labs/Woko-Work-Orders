@@ -7,6 +7,8 @@ export interface LocalizableNotification {
 }
 
 const typeLabels: Record<string, string> = {
+  FACILITIES_BOOKING_REQUESTED: 'Permohonan peminjaman fasilitas baru',
+  FACILITIES_BOOKING_APPROVED: 'Peminjaman fasilitas disetujui',
   ASSIGNMENT: 'Penugasan',
   REASSIGNMENT: 'Pengalihan tugas',
   PROGRESS_COMMENT: 'Komentar progres',

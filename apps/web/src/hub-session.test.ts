@@ -1,33 +1,37 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { startHubSessionRefresh } from './hub-session';
 
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
-afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
-
-describe('an expired Hub token', () => {
-  it('is renewed at the Hub and the request goes again once', async () => {
-    const calls: string[] = [];
-    let first = true;
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      calls.push(url);
-      if (url.endsWith('/public-config')) return json(200, { data: { hub_refresh_url: 'https://hub.test/auth/refresh', hub_home_url: 'https://hub.test/' } });
-      if (url === 'https://hub.test/auth/refresh') return json(200, {});
-      if (first) { first = false; return json(401, { error: { code: 'HUB_SESSION_REQUIRED', message: 'Sign in through the Hub.' } }); }
-      return json(200, { data: { ok: true } });
-    }));
-    const { api } = await import('./api');
-    await expect(api('/work-orders')).resolves.toEqual({ ok: true });
-    expect(calls.filter((url) => url.endsWith('/work-orders'))).toHaveLength(2);
-    expect(calls).toContain('https://hub.test/auth/refresh');
+describe('Woko Hub session refresh', () => {
+  it('refreshes before the current cookie expires, then schedules from the Hub response', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn(async () => Response.json({ data: { expires_in: 300 } }));
+    vi.stubGlobal('fetch', fetch);
+    const stop = startHubSessionRefresh({
+      hubRefreshUrl: 'https://hub.example.test/auth/refresh',
+      sessionExpiresAt: new Date(Date.now() + 120_000).toISOString(),
+    });
+    try {
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(fetch).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fetch).toHaveBeenCalledExactlyOnceWith('https://hub.example.test/auth/refresh', expect.objectContaining({
+        method: 'POST', credentials: 'include', headers: { 'X-Requested-With': 'mws' },
+      }));
+      await vi.advanceTimersByTimeAsync(244_000);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally { stop(); }
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
-  it('is an error when the Hub will not renew it', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (url.endsWith('/public-config')) return json(200, { data: { hub_refresh_url: 'https://hub.test/auth/refresh', hub_home_url: 'https://hub.test/' } });
-      if (url === 'https://hub.test/auth/refresh') return json(401, {});
-      return json(401, { error: { code: 'HUB_SESSION_REQUIRED', message: 'Sign in through the Hub.' } });
-    }));
-    const { api } = await import('./api');
-    await expect(api('/work-orders')).rejects.toMatchObject({ status: 401, code: 'HUB_SESSION_REQUIRED' });
+  it('does not contact a Hub when refresh is not configured', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    startHubSessionRefresh({ sessionExpiresAt: new Date(Date.now() + 60_000).toISOString() })();
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

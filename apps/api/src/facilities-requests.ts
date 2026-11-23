@@ -5,10 +5,14 @@ import { authenticate, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
 const schoolTimeZone = 'Asia/Jakarta';
+function bookingNotificationMessage(purpose: string, location: string, startsAt: string, endsAt: string): string {
+  const formatter = new Intl.DateTimeFormat('en-GB', { timeZone: schoolTimeZone, dateStyle: 'medium', timeStyle: 'short' });
+  return `${purpose} · ${location}\n${formatter.format(new Date(startsAt))} – ${formatter.format(new Date(endsAt))} WIB`;
+}
 const isoDateTime = z.string().datetime({ offset: true });
 const idSchema = z.object({ id: z.string().uuid() });
 
-const assetInputSchema = z.object({ name: z.string().trim().min(1).max(160), assetCode: z.string().trim().min(1).max(80), quantity: z.number().int().min(0).max(100000), active: z.boolean() });
+const assetInputSchema = z.object({ name: z.string().trim().min(1).max(160), assetCode: z.string().trim().min(1).max(80), category: z.string().trim().max(80).transform((value) => value || 'Uncategorized').optional(), quantity: z.number().int().min(0).max(100000), active: z.boolean() });
 const requestSchema = z.object({ purpose: z.string().trim().min(3).max(1000), location: z.string().trim().min(1).max(300), startsAt: isoDateTime, endsAt: isoDateTime, items: z.array(z.object({ assetId: z.string().uuid(), quantity: z.number().int().positive().max(100000) })).min(1).max(100) }).superRefine((value, context) => {
   if (new Set(value.items.map((item) => item.assetId)).size !== value.items.length) context.addIssue({ code: 'custom', path: ['items'], message: 'Each asset may only be requested once.' });
 });
@@ -57,13 +61,13 @@ const requestSelect = sql`
 
 export async function facilitiesRequestRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.get('/facilities/assets', { preHandler: requirePermission('facilities.request') }, async () => ({ data: await sql`select id, name, asset_code, quantity, active from facilities_assets order by name` }));
+  app.get('/facilities/assets', { preHandler: requirePermission('facilities.request') }, async () => ({ data: await sql`select id, name, asset_code, category, quantity, active from facilities_assets order by name` }));
 
   app.post('/facilities/assets', { preHandler: requirePermission('facilities.manage') }, async (request, reply) => {
     const input = assetInputSchema.parse(request.body);
     try {
       const created = await sql.begin(async (tx) => {
-        const rows = await tx<Array<{ id: string; name: string; asset_code: string; quantity: number; active: boolean }>>`insert into facilities_assets (name, asset_code, quantity, active, created_by, updated_by) values (${input.name}, ${input.assetCode}, ${input.quantity}, ${input.active}, ${request.currentUser.id}, ${request.currentUser.id}) returning id, name, asset_code, quantity, active`;
+        const rows = await tx<Array<{ id: string; name: string; asset_code: string; category: string; quantity: number; active: boolean }>>`insert into facilities_assets (name, asset_code, category, quantity, active, created_by, updated_by) values (${input.name}, ${input.assetCode}, ${input.category ?? 'Uncategorized'}, ${input.quantity}, ${input.active}, ${request.currentUser.id}, ${request.currentUser.id}) returning id, name, asset_code, category, quantity, active`;
         const row = rows[0]!; await tx`insert into facilities_audit_events (asset_id, user_id, event_type, new_data, correlation_id) values (${row.id}, ${request.currentUser.id}, 'FACILITIES_ASSET_CREATED', ${tx.json(row)}, ${request.id})`; return row;
       });
       return reply.code(201).send({ data: created });
@@ -77,7 +81,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     let result: RouteResult;
     try {
       result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const rows = await tx<Array<{ id: string; name: string; asset_code: string; quantity: number; active: boolean }>>`select id, name, asset_code, quantity, active from facilities_assets where id = ${id} for update`;
+      const rows = await tx<Array<{ id: string; name: string; asset_code: string; category: string; quantity: number; active: boolean }>>`select id, name, asset_code, category, quantity, active from facilities_assets where id = ${id} for update`;
       const previous = rows[0]; if (!previous) return { error: 'NOT_FOUND' };
       const committed = await tx<Array<{ quantity: number }>>`
         select coalesce(max(concurrent.quantity), 0)::int quantity from (
@@ -97,7 +101,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
       const held = await tx<Array<{ quantity: number }>>`select coalesce(sum(item.quantity), 0)::int quantity from facilities_request_items item join facilities_requests request on request.id=item.request_id where item.asset_id=${id} and request.status='RETURNED' and item.return_condition in ('DAMAGED','MISSING') and item.issue_resolved_at is null`;
       const protectedQuantity = committed[0]!.quantity + overdue[0]!.quantity + held[0]!.quantity;
       if (input.quantity < protectedQuantity || (!input.active && protectedQuantity > 0)) return { error: 'ASSET_COMMITMENT_CONFLICT' };
-      const updatedRows = await tx<Array<{ id: string; name: string; asset_code: string; quantity: number; active: boolean }>>`update facilities_assets set name=${input.name}, asset_code=${input.assetCode}, quantity=${input.quantity}, active=${input.active}, updated_by=${request.currentUser.id}, updated_at=now() where id=${id} returning id, name, asset_code, quantity, active`;
+      const updatedRows = await tx<Array<{ id: string; name: string; asset_code: string; category: string; quantity: number; active: boolean }>>`update facilities_assets set name=${input.name}, asset_code=${input.assetCode}, category=${input.category ?? previous.category}, quantity=${input.quantity}, active=${input.active}, updated_by=${request.currentUser.id}, updated_at=now() where id=${id} returning id, name, asset_code, category, quantity, active`;
       const updated = updatedRows[0]!; await tx`insert into facilities_audit_events (asset_id, user_id, event_type, previous_data, new_data, correlation_id) values (${id}, ${request.currentUser.id}, 'FACILITIES_ASSET_UPDATED', ${tx.json(previous)}, ${tx.json(updated)}, ${request.id})`; return { id: updated.id };
       });
     } catch (error) {
@@ -105,7 +109,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
       throw error;
     }
     if (hasError(result)) return sendError(reply, request.id, result.error === 'NOT_FOUND' ? 404 : 422, result.error, result.error === 'NOT_FOUND' ? 'Asset not found.' : 'Asset stock is committed to requests or unresolved returns.');
-    const rows = await sql`select id, name, asset_code, quantity, active from facilities_assets where id=${id}`; return { data: rows[0] };
+    const rows = await sql`select id, name, asset_code, category, quantity, active from facilities_assets where id=${id}`; return { data: rows[0] };
   });
   app.get('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request) => ({ data: seesAllBookings(request.currentUser.permissions) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
   app.post('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request, reply) => {
@@ -124,7 +128,13 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
       }
       const created = await tx<Array<{ id: string }>>`insert into facilities_requests (purpose,location,starts_at,ends_at,status,requester_id,approver_id) values (${input.purpose},${input.location},${input.startsAt},${input.endsAt},'PENDING',${request.currentUser.id},${manager.id}) returning id`;
       const row = created[0]!; for (const item of input.items) await tx`insert into facilities_request_items (request_id,asset_id,quantity) values (${row.id},${item.assetId},${item.quantity})`;
-      await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${row.id},${request.currentUser.id},'FACILITIES_REQUEST_CREATED',${tx.json(input)},${request.id})`; return { id: row.id };
+      await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${row.id},${request.currentUser.id},'FACILITIES_REQUEST_CREATED',${tx.json(input)},${request.id})`;
+      const message = bookingNotificationMessage(input.purpose, input.location, input.startsAt, input.endsAt);
+      await tx`insert into notifications (recipient_user_id,type,title,message,idempotency_key)
+        select u.id,'FACILITIES_BOOKING_REQUESTED','New facilities booking request',${message},${`facilities-requested:${row.id}:`} || u.id::text
+        from users u where u.active and exists (select 1 from user_permissions p where p.user_id=u.id and p.permission='facilities.manage')
+        on conflict do nothing`;
+      return { id: row.id };
     });
     if (hasError(result)) return sendError(reply, request.id, 422, result.error, result.error === 'NO_ACTIVE_MANAGER' ? 'An active Facilities Manager is required before requests can be submitted.' : result.error === 'INVALID_ASSET' ? 'Select active assets only.' : `${result.assetName!} is not available for the requested time.`);
     return reply.code(201).send({ data: result });
@@ -132,9 +142,14 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
   app.post('/facilities/requests/:id/decision', { preHandler: requirePermission('facilities.manage') }, async (request, reply) => {
     const { id } = idSchema.parse(request.params); const input = decisionSchema.parse(request.body);
     const result = await sql.begin(async (tx): Promise<RouteResult> => {
-      const rows = await tx<Array<{ status: string; starts_at: string }>>`select status,starts_at::text from facilities_requests where id=${id} for update`; const facilityRequest=rows[0];
+      const rows = await tx<Array<{ status: string; starts_at: string; ends_at: string; requester_id: string; purpose: string; location: string }>>`select status,starts_at::text,ends_at::text,requester_id,purpose,location from facilities_requests where id=${id} for update`; const facilityRequest=rows[0];
       if (!facilityRequest) return { error:'NOT_FOUND' }; if (facilityRequest.status !== 'PENDING') return { error:'INVALID_REQUEST_STATE' }; if (input.decision === 'APPROVED' && new Date(facilityRequest.starts_at) <= new Date()) return { error:'BOOKING_EXPIRED' };
-      const status=input.decision === 'APPROVED' ? 'APPROVED' : 'REJECTED'; await tx`update facilities_requests set status=${status},decision_note=${input.note},decided_at=now(),updated_at=now() where id=${id}`; await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${id},${request.currentUser.id},'FACILITIES_REQUEST_DECIDED',${tx.json(input)},${request.id})`; return { status };
+      const status=input.decision === 'APPROVED' ? 'APPROVED' : 'REJECTED'; await tx`update facilities_requests set status=${status},decision_note=${input.note},decided_at=now(),updated_at=now() where id=${id}`; await tx`insert into facilities_audit_events (request_id,user_id,event_type,new_data,correlation_id) values (${id},${request.currentUser.id},'FACILITIES_REQUEST_DECIDED',${tx.json(input)},${request.id})`;
+      if (status === 'APPROVED') {
+        const message = `${bookingNotificationMessage(facilityRequest.purpose, facilityRequest.location, facilityRequest.starts_at, facilityRequest.ends_at)}\n${input.note}`;
+        await tx`insert into notifications (recipient_user_id,type,title,message,idempotency_key) values (${facilityRequest.requester_id},'FACILITIES_BOOKING_APPROVED','Facilities booking approved',${message},${`facilities-approved:${id}`}) on conflict do nothing`;
+      }
+      return { status };
     });
     if (hasError(result)) return sendError(reply,request.id,result.error === 'NOT_FOUND'?404:422,result.error,result.error === 'BOOKING_EXPIRED'?'Expired bookings cannot be approved.':'This request cannot be decided now.'); return { data:result };
   });

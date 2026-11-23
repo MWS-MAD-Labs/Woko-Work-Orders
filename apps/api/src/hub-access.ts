@@ -21,7 +21,6 @@ export interface HubAccess {
   claims(cookieHeader: string | undefined): Promise<Pick<HubSessionClaims, 'sub' | 'email' | 'exp'> | null>;
   resolve(personId: string): Promise<AccessResult>;
   homeUrl(): string;
-  refreshUrl(): string;
   restoreUrl(returnUrl: string): string;
 }
 
@@ -42,7 +41,6 @@ export function createHubAccess(): HubAccess {
     claims: (header) => session.fromCookieHeader(header),
     resolve: (personId) => resolver.resolve(personId),
     homeUrl: () => session.homeUrl(),
-    refreshUrl: () => session.refreshUrl(),
     restoreUrl: (returnUrl) => session.restoreUrl(returnUrl),
   };
 }

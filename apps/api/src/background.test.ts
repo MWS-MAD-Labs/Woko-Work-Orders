@@ -59,6 +59,8 @@ describe('notification reminder scheduling', () => {
   });
 
   it('deep-links Routine Work reminders to the Routine Work view', () => {
+    expect(notificationTargetUrl('FACILITIES_BOOKING_REQUESTED', null)).toBe('/?view=facilities');
+    expect(notificationTargetUrl('FACILITIES_BOOKING_APPROVED', null)).toBe('/?view=facilities');
     expect(notificationTargetUrl('WORK_LIST_DAILY_REMINDER', null)).toBe('/?view=work-lists');
     expect(notificationTargetUrl('ASSIGNMENT', '99999999-9999-4999-8999-999999999999')).toBe('/?workOrder=99999999-9999-4999-8999-999999999999');
     expect(notificationTargetUrl('WORK_LIST_MISSED_DIGEST', null)).toBeUndefined();

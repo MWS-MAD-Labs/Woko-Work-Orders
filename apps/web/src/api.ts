@@ -1,7 +1,6 @@
 import { evidenceRules } from '@woko/domain';
 
-import { apiUrl } from './api-base';
-import { renewHubSession } from './hub-session';
+const apiUrl = import.meta.env.VITE_API_URL ?? '/api/v1';
 const maxUploadMegabytes = Math.round(evidenceRules.maxFileSizeBytes / 1024 / 1024);
 
 export class ApiError extends Error {
@@ -16,14 +15,12 @@ async function requestEnvelope<T, M = unknown>(path: string, init?: RequestInit)
   const headers = new Headers(init?.headers);
   if (typeof init?.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
 
-  const send = () => fetch(`${apiUrl}${path}`, { ...init, credentials: 'include', headers });
-  let response = await send();
-  let body = await response.json().catch(() => ({}));
-  // The Hub token ran out: renew it at the Hub and go again once, before the person sees an error.
-  if (response.status === 401 && body.error?.code === 'HUB_SESSION_REQUIRED' && await renewHubSession()) {
-    response = await send();
-    body = await response.json().catch(() => ({}));
-  }
+  const response = await fetch(`${apiUrl}${path}`, {
+    ...init,
+    credentials: 'include',
+    headers,
+  });
+  const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiError(body.error?.message ?? 'Request failed', response.status, body.error?.code);
   return body as ApiEnvelope<T, M>;
 }
