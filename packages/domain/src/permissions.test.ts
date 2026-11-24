@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { can, canAny, missingRequirements, withRequirements, withoutDependents, isPermission, permissionBundles, permissionGroups, permissionManifest, permissions, rolePresetsFile } from './permissions.js';
+import { can, canAny, missingRequirements, withRequirements, withoutDependents, isPermission, permissionBundles, permissionGroups, permissionManifest, permissions, rolePresetsFile, workOrderViewPermissions, workListViewPermissions, facilitiesViewPermissions } from './permissions.js';
 
 const managerOnly = ['work-order.operate-any', 'work-order.transition-any', 'work-order.approve', 'work-order.reopen', 'work-order.cancel', 'work-order.set-schedule', 'work-order.manage-participants', 'work-order.read-audit', 'work-order.read-all'] as const;
 
@@ -77,3 +77,18 @@ describe('permissions', () => {
     expect(withoutDependents(['woko.use', 'work-order.create'], 'woko.use')).toEqual([]);
   });
 });
+
+describe('view permissions of the main tabs', () => {
+  it('only name permissions that exist, each once', () => {
+    for (const list of [workOrderViewPermissions, workListViewPermissions, facilitiesViewPermissions]) {
+      expect(list.every((permission) => isPermission(permission))).toBe(true);
+      expect(new Set(list).size).toBe(list.length);
+    }
+  });
+
+  it('keep the three tabs apart from one another', () => {
+    const all = [...workOrderViewPermissions, ...workListViewPermissions, ...facilitiesViewPermissions];
+    expect(new Set(all).size).toBe(all.length);
+  });
+});
+

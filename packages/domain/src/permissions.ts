@@ -42,6 +42,21 @@ export type Permission = (typeof permissions)[number];
 
 export { can, canAny };
 
+// What lets a person open each part of the app. The API gates and the tabs of the web app both read these, so a tab
+// is shown exactly when its data can be read.
+export const workOrderViewPermissions = [
+  "work-order.read-all",
+  "work-order.operate-any",
+  "work-order.be-pic",
+  "work-order.be-worker",
+  "work-order.be-reviewer",
+  "work-order.be-overseer",
+] as const satisfies readonly Permission[];
+
+export const workListViewPermissions = ["work-list.read", "work-list.be-worker"] as const satisfies readonly Permission[];
+
+export const facilitiesViewPermissions = ["facilities.request", "facilities.read", "facilities.manage"] as const satisfies readonly Permission[];
+
 // The screen groups them for the person who grants access.
 export const permissionGroups: ReadonlyArray<{
   key: string;

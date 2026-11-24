@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { can, type Permission } from '@woko/domain';
+import { can, workListViewPermissions, type Permission } from '@woko/domain';
 import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
 import { generateWorkListOccurrences, localDateInTimeZone } from './background.js';
 import { sql } from './database/client.js';
@@ -83,7 +83,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: { updated: true } };
   });
 
-  app.get('/work-lists', { preHandler: requireAnyPermission(['work-list.read', 'work-list.be-worker']) }, async (request) => {
+  app.get('/work-lists', { preHandler: requireAnyPermission(workListViewPermissions) }, async (request) => {
     const localDate = localDateInTimeZone();
     const query = z.object({ offset: z.coerce.number().int().min(0).default(0), limit: z.coerce.number().int().min(1).max(200).default(200) }).parse(request.query);
     const rows = await sql`
@@ -100,7 +100,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: rows.slice(0, query.limit), meta: { limit: query.limit, offset: query.offset, hasMore, nextOffset: hasMore ? query.offset + query.limit : null } };
   });
 
-  app.get('/work-lists/:id', { preHandler: requireAnyPermission(['work-list.read', 'work-list.be-worker']) }, async (request, reply) => {
+  app.get('/work-lists/:id', { preHandler: requireAnyPermission(workListViewPermissions) }, async (request, reply) => {
     const occurrenceId = id.parse((request.params as { id: string }).id);
     const access = await occurrenceAccess(occurrenceId, request.currentUser.id, request.currentUser.permissions);
     if (access !== 'ALLOWED') { const denied = accessError(access, request.id); return reply.code(denied.status).send(denied.body); }
@@ -109,7 +109,7 @@ export async function workListRoutes(app: FastifyInstance) {
     return { data: occurrences[0] };
   });
 
-  app.get('/work-lists/evidence/:evidenceId', { preHandler: requireAnyPermission(['work-list.read', 'work-list.be-worker']) }, async (request, reply) => {
+  app.get('/work-lists/evidence/:evidenceId', { preHandler: requireAnyPermission(workListViewPermissions) }, async (request, reply) => {
     const evidenceId = id.parse((request.params as { evidenceId: string }).evidenceId);
     const rows = await sql<Array<{ occurrence_id: string; drive_file_id: string; file_name: string; mime_type: string }>>`select occurrence_id, drive_file_id, file_name, mime_type from work_list_evidence where id=${evidenceId}`;
     const evidence = rows[0];
