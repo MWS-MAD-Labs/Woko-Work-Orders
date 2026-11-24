@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { can, type Permission } from '@woko/domain';
-import { authenticate, requirePermission } from './auth.js';
+import { can, facilitiesViewPermissions, type Permission } from '@woko/domain';
+import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
 import { sql } from './database/client.js';
 
 const schoolTimeZone = 'Asia/Jakarta';
@@ -61,7 +61,7 @@ const requestSelect = sql`
 
 export async function facilitiesRequestRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authenticate);
-  app.get('/facilities/assets', { preHandler: requirePermission('facilities.request') }, async () => ({ data: await sql`select id, name, asset_code, category, quantity, active from facilities_assets order by name` }));
+  app.get('/facilities/assets', { preHandler: requireAnyPermission(facilitiesViewPermissions) }, async () => ({ data: await sql`select id, name, asset_code, category, quantity, active from facilities_assets order by name` }));
 
   app.post('/facilities/assets', { preHandler: requirePermission('facilities.manage') }, async (request, reply) => {
     const input = assetInputSchema.parse(request.body);
@@ -111,7 +111,7 @@ export async function facilitiesRequestRoutes(app: FastifyInstance) {
     if (hasError(result)) return sendError(reply, request.id, result.error === 'NOT_FOUND' ? 404 : 422, result.error, result.error === 'NOT_FOUND' ? 'Asset not found.' : 'Asset stock is committed to requests or unresolved returns.');
     const rows = await sql`select id, name, asset_code, category, quantity, active from facilities_assets where id=${id}`; return { data: rows[0] };
   });
-  app.get('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request) => ({ data: seesAllBookings(request.currentUser.permissions) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
+  app.get('/facilities/requests', { preHandler: requireAnyPermission(facilitiesViewPermissions) }, async (request) => ({ data: seesAllBookings(request.currentUser.permissions) ? await sql`${requestSelect} order by fr.starts_at desc` : await sql`${requestSelect} where fr.requester_id=${request.currentUser.id} order by fr.starts_at desc` }));
   app.post('/facilities/requests', { preHandler: requirePermission('facilities.request') }, async (request, reply) => {
     const input = requestSchema.parse(request.body); const check = validateBookingTimes(input);
     if (!check.ok) return sendError(reply, request.id, 422, check.code, check.code === 'INVALID_BOOKING_TIME' ? 'Choose a future start and an end after it.' : 'Bookings may end no later than two calendar months from today.');
