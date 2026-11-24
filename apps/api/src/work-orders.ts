@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { can, canAny, canTransitionProcurement, type Permission, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type TaskCondition, type WorkflowStage, type WorkType } from '@woko/domain';
+import { can, canAny, canTransitionProcurement, type Permission, canWorkerRecordProgress, changeConditionSchema, changeDueDateSchema, clearProcurementSchema, createWorkOrderSchema, decideProcurementSchema, evidenceRules, evidenceTypes, formatWorkOrderNumber, getDeadlineGroup, linkDriveEvidenceSchema, proposalDecisionSchema, proposalDecisionTargets, proposalSubmissionSchema, requireProcurementSchema, submitProcurementSchema, transferDriveEvidenceSchema, updateProcurementSchema, validateTransition, vendorSearchSchema, type EvidenceType, type InternalProcurementStatus, type TaskCondition, type WorkflowStage, type WorkType, workOrderViewPermissions } from '@woko/domain';
 import { z } from 'zod';
 import { config } from './config.js';
 import { authenticate, requireAnyPermission, requirePermission } from './auth.js';
@@ -8,7 +8,7 @@ import { createUserDriveShortcut, deleteDriveFile, extractDriveFileId, linkExist
 import { isCompletionPhoto, prepareEvidenceUpload, validateLinkedDriveFile } from './evidence.js';
 
 // Who may reach a work-order route at all. Whether the person belongs to that particular work order is checked inside.
-const viewWorkOrders = ['work-order.read-all', 'work-order.operate-any', 'work-order.be-pic', 'work-order.be-worker', 'work-order.be-reviewer', 'work-order.be-overseer'] as const;
+const viewWorkOrders = workOrderViewPermissions;
 const discussWorkOrder = viewWorkOrders;
 const addEvidence = ['work-order.operate-any', 'work-order.be-pic', 'work-order.be-worker'] as const;
 const actAsPic = ['work-order.operate-any', 'work-order.be-pic'] as const;

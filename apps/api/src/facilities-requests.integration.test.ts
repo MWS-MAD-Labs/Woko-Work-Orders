@@ -355,6 +355,20 @@ describe('permission gates', () => {
     expect((await call('POST', '/work-orders', {})).statusCode).toBe(403);
   });
 
+  it('lets someone who can only read bookings open Facilities, and keeps every change closed to them', async () => {
+    const readOnlyId = '30000000-0000-4000-8000-000000000009';
+    await userWith(readOnlyId, 'bookings-reader@millennia21.id', ['woko.use', 'facilities.read']);
+    // Its own client address, so these calls do not count against the rate limit the rest of this file shares.
+    const call = (method: 'GET' | 'POST', url: string, payload?: object) =>
+      app.inject({ method, url: `/api/v1${url}`, headers: asUser(readOnlyId), remoteAddress: '203.0.113.9', ...(payload ? { payload } : {}) });
+
+    expect((await call('GET', '/facilities/assets')).statusCode).toBe(200);
+    expect((await call('GET', '/facilities/requests')).statusCode).toBe(200);
+    expect((await call('POST', '/facilities/requests', {})).statusCode).toBe(403);
+    expect((await call('POST', `/facilities/requests/${crypto.randomUUID()}/decision`, {})).statusCode).toBe(403);
+    expect((await call('POST', '/facilities/assets', {})).statusCode).toBe(403);
+  });
+
   it('renames stored keys from domain:action to domain.action and leaves the rest alone', async () => {
     await userWith(readerId, 'reader@millennia21.id', []);
     await sql`insert into user_permissions (user_id, permission) values (${readerId}, 'work-order:read-all'), (${readerId}, 'facilities:manage'), (${readerId}, 'work-order.create')`;
