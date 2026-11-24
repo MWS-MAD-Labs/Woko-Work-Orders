@@ -396,7 +396,10 @@ export async function workOrderRoutes(app: FastifyInstance) {
     return { data: { proposalApprovals, completionReviews, internalProcurementReviews } };
   });
 
-  app.get('/work-orders', { preHandler: requireAnyPermission(viewWorkOrders) }, async (request) => {
+  // The app asks for this list when it opens. Someone who may use Woko but has no work order permission, such as a
+  // facilities requester, gets an empty list instead of a 403 that would keep them out of the whole app.
+  app.get('/work-orders', async (request) => {
+    if (!canAny(request.currentUser.permissions, viewWorkOrders)) return { data: [] };
     const query = z.object({ scope: z.enum(['all', 'mine']).default('all'), status: z.enum(['ACTIVE', 'COMPLETED', 'CANCELLED']).optional() }).parse(request.query);
     const scope = resolveWorkOrderScope(request.currentUser.permissions, query.scope);
     const rows = scope === 'mine'

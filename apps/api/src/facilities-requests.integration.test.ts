@@ -335,6 +335,26 @@ describe('permission gates', () => {
     expect(create.statusCode).toBe(403);
   });
 
+  it('lets a facilities requester open the app without any work order permission', async () => {
+    const requesterOnlyId = '30000000-0000-4000-8000-000000000008';
+    await userWith(requesterOnlyId, 'requester-only@millennia21.id', ['woko.use', 'facilities.request']);
+    // Its own client address, so these calls do not count against the rate limit the rest of this file shares.
+    const call = (method: 'GET' | 'POST', url: string, payload?: object) =>
+      app.inject({ method, url: `/api/v1${url}`, headers: asUser(requesterOnlyId), remoteAddress: '203.0.113.8', ...(payload ? { payload } : {}) });
+
+    const list = await call('GET', '/work-orders');
+    expect(list.statusCode).toBe(200);
+    expect(await body(list)).toEqual({ data: [] });
+    expect((await call('GET', '/facilities/assets')).statusCode).toBe(200);
+    expect((await call('GET', '/facilities/requests')).statusCode).toBe(200);
+
+    // Everything else about work orders stays closed to them.
+    for (const url of [`/work-orders/${crypto.randomUUID()}`, '/work-lists', '/admin/users', '/admin/locations']) {
+      expect([url, (await call('GET', url)).statusCode]).toEqual([url, 403]);
+    }
+    expect((await call('POST', '/work-orders', {})).statusCode).toBe(403);
+  });
+
   it('renames stored keys from domain:action to domain.action and leaves the rest alone', async () => {
     await userWith(readerId, 'reader@millennia21.id', []);
     await sql`insert into user_permissions (user_id, permission) values (${readerId}, 'work-order:read-all'), (${readerId}, 'facilities:manage'), (${readerId}, 'work-order.create')`;
